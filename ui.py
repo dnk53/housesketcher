@@ -184,6 +184,30 @@ class VIEW3D_PT_huvudpanel(bpy.types.Panel):
                 col4.prop(s, "vagg_hojd")
                 col4.label(text="Select a wall to edit", icon='INFO')
 
+        # ----- 21. INTERIOR WALLS -----
+        box8 = layout.box()
+        row8 = box8.row()
+        row8.prop(scene, "bt_show_innervagg", text="", icon='TRIA_DOWN' if scene.bt_show_innervagg else 'TRIA_RIGHT', emboss=False)
+        row8.label(text="21. Interior Walls")
+
+        if scene.bt_show_innervagg:
+            col8 = box8.column()
+            p = scene.bt_innervagg
+            
+            col8.prop(p, "tjocklek")
+            col8.prop(p, "hojd")
+            col8.prop(p, "guide_type", text="")
+            
+            col8.separator()
+            
+            col8.prop(p, "start_x")
+            col8.prop(p, "start_y")
+            col8.prop(p, "langd")
+            col8.prop(p, "rotation")
+            
+            col8.separator()
+            col8.operator("mesh.bt_skapa_innervagg", text="Add Interior Wall")
+    
         # ----- 30. SLAB -----
         box5 = layout.box()
         row5 = box5.row()

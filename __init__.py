@@ -19,11 +19,12 @@ import bpy
 # 1. IMPORTERA MODULER
 # ---------------------------------------------------------------------------
 from .properties import (
-    huvudmatt, platta, vagg, vagg_settings, tak, bjalklag, fonster, dorr
+    huvudmatt, platta, vagg, vagg_settings, tak, bjalklag, fonster, dorr, innervagg
 )
 from .operators import (
     generera_hus, generera_platta, generera_vagg, 
     generera_tak, generera_bjalklag, generera_fonster, generera_dorr,
+    generera_innervagg,
     meny_hantering
 )
 from . import ui
@@ -43,6 +44,7 @@ classes = (
     bjalklag.BT_BjälklagProperties,
     fonster.BT_FonsterProperties,
     dorr.BT_DorrProperties,
+    innervagg.BT_InnervaggProperties,  # <-- LÄGG TILL
     
     # Operators
     generera_hus.MESH_OT_bt_skapa_hus,
@@ -52,6 +54,7 @@ classes = (
     generera_bjalklag.MESH_OT_bt_skapa_bjalklag,
     generera_fonster.MESH_OT_bt_skapa_fonster,
     generera_dorr.MESH_OT_bt_skapa_dorr,
+    generera_innervagg.MESH_OT_bt_skapa_innervagg,  # <-- LÄGG TILL
     meny_hantering.MESH_OT_bt_dolj_alla_menyer,
     meny_hantering.MESH_OT_bt_uppdatera_mallar,
     
@@ -76,6 +79,7 @@ def register():
     bpy.types.Scene.bt_bjalklag = bpy.props.PointerProperty(type=bjalklag.BT_BjälklagProperties)
     bpy.types.Scene.bt_fonster = bpy.props.PointerProperty(type=fonster.BT_FonsterProperties)
     bpy.types.Scene.bt_dorr = bpy.props.PointerProperty(type=dorr.BT_DorrProperties)
+    bpy.types.Scene.bt_innervagg = bpy.props.PointerProperty(type=innervagg.BT_InnervaggProperties)  # <-- LÄGG TILL
     
     # UI-kollaps properties
     bpy.types.Scene.bt_show_huvudmått = bpy.props.BoolProperty(default=False)
@@ -89,6 +93,7 @@ def register():
     bpy.types.Scene.bt_show_bjalklag = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_fonster = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_dorr = bpy.props.BoolProperty(default=False)
+    bpy.types.Scene.bt_show_innervagg = bpy.props.BoolProperty(default=False)  # <-- LÄGG TILL
     
     # Synkroniseringshandlare
     bpy.app.handlers.depsgraph_update_post.append(utils.bt_master_synk_handler)
@@ -114,11 +119,11 @@ def unregister():
     # Ta bort scene properties
     props = [
         'bt_huvudmått', 'bt_platta', 'bt_vagg', 'bt_vagg_settings', 
-        'bt_tak', 'bt_bjalklag', 'bt_fonster', 'bt_dorr',
+        'bt_tak', 'bt_bjalklag', 'bt_fonster', 'bt_dorr', 'bt_innervagg',
         'bt_show_huvudmått', 'bt_show_symmetrisk', 'bt_show_osymmetrisk',
         'bt_show_asymmetric', 'bt_show_mansard',
         'bt_show_platta', 'bt_show_vagg', 'bt_show_tak', 
-        'bt_show_bjalklag', 'bt_show_fonster', 'bt_show_dorr'
+        'bt_show_bjalklag', 'bt_show_fonster', 'bt_show_dorr', 'bt_show_innervagg'
     ]
     for prop in props:
         try:

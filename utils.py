@@ -2204,6 +2204,47 @@ def skapa_dorrhandtag(context, hangning="RIGHT", position=(0, 0, 0), parent=None
     
     return handtag_fram_obj
 
+def _update_innervagg_boolean(innervagg_obj, scene, guide_type):
+    """Uppdaterar Boolean-modifieraren på innerväggen baserat på vald guide"""
+    
+    # Hitta guiden
+    guide_obj = None
+    if guide_type == 'INTERIOR':
+        for obj in scene.objects:
+            if obj.name == "Interior_Guide":
+                guide_obj = obj
+                break
+    elif guide_type == 'EXTERIOR':
+        for obj in scene.objects:
+            if obj.name == "Exterior_Guide":
+                guide_obj = obj
+                break
+    elif guide_type == 'WALL':
+        for obj in scene.objects:
+            if obj.name == "Wall_Guide":
+                guide_obj = obj
+                break
+    
+    # Ta bort befintlig Boolean-modifierare
+    old_mod = None
+    for mod in innervagg_obj.modifiers:
+        if mod.type == 'BOOLEAN' and mod.name.startswith("Guide_"):
+            old_mod = mod
+            break
+    
+    if old_mod:
+        innervagg_obj.modifiers.remove(old_mod)
+    
+    # Om ingen guide eller 'NONE', avbryt
+    if guide_type == 'NONE' or not guide_obj:
+        return
+    
+    # Lägg till ny Boolean-modifierare
+    bm_mod = innervagg_obj.modifiers.new(name=f"Guide_{guide_type}", type='BOOLEAN')
+    bm_mod.operation = 'INTERSECT'
+    bm_mod.object = guide_obj
+    bm_mod.solver = 'EXACT'
+    
 # ---------------------------------------------------------------------------
 # 19. MATERIAL-FUNKTIONER
 # ---------------------------------------------------------------------------
@@ -2413,9 +2454,29 @@ def get_material_handtag():
         links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
     return mat
 
+def get_material_innervagg():
+    """Material för innerväggar (vit puts)"""
+    mat = bpy.data.materials.get("Innervagg_Vit")
+    if not mat:
+        mat = bpy.data.materials.new(name="Innervagg_Vit")
+        mat.use_fake_user = True
+        mat.diffuse_color = (0.95, 0.95, 0.95, 1.0)
+        mat.use_nodes = True
+        nodes = mat.node_tree.nodes
+        links = mat.node_tree.links
+        nodes.clear()
+        bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+        bsdf.inputs['Base Color'].default_value = (0.95, 0.95, 0.95, 1.0)
+        bsdf.inputs['Roughness'].default_value = 0.8
+        output = nodes.new('ShaderNodeOutputMaterial')
+        output.location = (200, 0)
+        links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+    return mat
+
 # ---------------------------------------------------------------------------
 # 20. SÄTT UPDATE-FUNKTIONER
 # ---------------------------------------------------------------------------
 def set_update_functions():
     """Sätter update-funktioner för properties som behöver dem"""
     pass
+
