@@ -1,0 +1,15 @@
+schema_version = "1.0.0"
+id = "housesketcher"
+name = "HouseSketcher"
+tagline = "Sketch and build houses interactively in Blender"
+version = "1.0.0"
+type = "add-on"
+license = ["GPL-2.0-or-later"]
+
+blender_version_min = "5.0.0"
+
+maintainer = "Dan-Åke Engqvist"
+
+tags = ["BIM", "Architecture", "Modeling", "Design"]
+
+modules = ["__init__"]
