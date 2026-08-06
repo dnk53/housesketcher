@@ -1542,6 +1542,14 @@ def bt_update_single_bjalklag(bjalklag_obj, context):
     bm_mod.operation = 'INTERSECT'
     bm_mod.object = guide_obj
     bm_mod.solver = 'EXACT'
+    
+    # ----- UPPDATERA INNERVÄGGAR SOM STÅR PÅ DETTA BJÄLKLAG -----
+    # När bjälklaget uppdateras, uppdatera alla innerväggar
+    slab_top = bjalklag_obj.location.z + bjalklag_obj.get("tjocklek", 0.30)
+    innervagg_list = [o for o in scene.objects if o.get("typ") == "innervagg"]
+    for innervagg in innervagg_list:
+        innervagg["base_z"] = slab_top
+        bt_update_single_innervagg(innervagg, context)
 
 def bt_update_bjalklag(self, context):
     """Uppdaterar markerade bjälklag när parametrar ändras i panelen"""
@@ -1896,6 +1904,7 @@ def bt_selection_handler(scene, depsgraph=None):
     from .properties.dorr import sync_dorr_panel_from_selection
     from .properties.bjalklag import sync_bjalklag_panel_from_selection
     from .properties.vagg_settings import sync_vagg_panel_from_selection
+    from .properties.innervagg import sync_innervagg_panel_from_selection
     
     context = bpy.context
     if context:
@@ -1903,6 +1912,7 @@ def bt_selection_handler(scene, depsgraph=None):
         sync_dorr_panel_from_selection(context)
         sync_bjalklag_panel_from_selection(context)
         sync_vagg_panel_from_selection(context)
+        sync_innervagg_panel_from_selection(context)
     
     bt_update_spegelvänd_from_selection(scene)
 
@@ -2204,10 +2214,135 @@ def skapa_dorrhandtag(context, hangning="RIGHT", position=(0, 0, 0), parent=None
     
     return handtag_fram_obj
 
-def _update_innervagg_boolean(innervagg_obj, scene, guide_type):
-    """Uppdaterar Boolean-modifieraren på innerväggen baserat på vald guide"""
+# ---------------------------------------------------------------------------
+# INNERVÄGG - Uppdateringsfunktioner
+# ---------------------------------------------------------------------------
+def bt_update_single_innervagg(innervagg_obj, context):
+    """Uppdaterar en enskild innerväggs geometri via vertex-flyttning"""
+    if not innervagg_obj or not innervagg_obj.data:
+        return
     
-    # Hitta guiden
+    scene = context.scene
+    h = scene.bt_huvudmått
+    
+    # Hämta parametrar från objektet
+    tjocklek = innervagg_obj.get("tjocklek", 0.120)
+    hojd = innervagg_obj.get("hojd", 0.0)
+    start_x = innervagg_obj.get("start_x", 0.15)
+    start_y = innervagg_obj.get("start_y", 0.0)
+    langd = innervagg_obj.get("langd", 0.0)
+    rotation = innervagg_obj.get("rotation", 0.0)
+    base_z = innervagg_obj.get("base_z", 0.0)
+    
+    # Beräkna total höjd
+    if hojd == 0:
+        total_hojd = _calculate_total_wall_height(scene)
+    else:
+        total_hojd = hojd
+    
+    # Beräkna byggnadens innermått
+    fasad_l = h.fasad_l
+    fasad_b = h.fasad_b
+    teoretisk_bredd = h.teoretisk_vagg_bredd
+    inner_l = fasad_l - teoretisk_bredd * 2
+    inner_b = fasad_b - teoretisk_bredd * 2
+    
+    # Beräkna startpunkt
+    if start_x == 0:
+        start_x = fasad_l / 2
+    if start_y == 0:
+        start_y = fasad_b / 2
+    
+    # Beräkna längd
+    rotation_rad = math.radians(rotation)
+    
+    if langd == 0:
+        if abs(rotation) < 1 or abs(rotation - 180) < 1 or abs(rotation + 180) < 1:
+            langd = inner_l
+        elif abs(rotation - 90) < 1 or abs(rotation + 90) < 1:
+            langd = inner_b
+        else:
+            langd = 5.0
+    
+    end_x = start_x + langd * math.cos(rotation_rad)
+    end_y = start_y + langd * math.sin(rotation_rad)
+    
+    center_x = (start_x + end_x) / 2
+    center_y = (start_y + end_y) / 2
+    dx = end_x - start_x
+    dy = end_y - start_y
+    wall_length = math.sqrt(dx*dx + dy*dy)
+    
+    if wall_length < 0.001:
+        return
+    
+    dx /= wall_length
+    dy /= wall_length
+    px = -dy
+    py = dx
+    
+    half_width = tjocklek / 2
+    half_length = wall_length / 2
+    
+    coords = [
+        (center_x + (-half_length * dx - half_width * px),
+         center_y + (-half_length * dy - half_width * py),
+         base_z),
+        (center_x + (half_length * dx - half_width * px),
+         center_y + (half_length * dy - half_width * py),
+         base_z),
+        (center_x + (half_length * dx + half_width * px),
+         center_y + (half_length * dy + half_width * py),
+         base_z),
+        (center_x + (-half_length * dx + half_width * px),
+         center_y + (-half_length * dy + half_width * py),
+         base_z),
+        (center_x + (-half_length * dx - half_width * px),
+         center_y + (-half_length * dy - half_width * py),
+         base_z + total_hojd),
+        (center_x + (half_length * dx - half_width * px),
+         center_y + (half_length * dy - half_width * py),
+         base_z + total_hojd),
+        (center_x + (half_length * dx + half_width * px),
+         center_y + (half_length * dy + half_width * py),
+         base_z + total_hojd),
+        (center_x + (-half_length * dx + half_width * px),
+         center_y + (-half_length * dy + half_width * py),
+         base_z + total_hojd),
+    ]
+    
+    mesh = innervagg_obj.data
+    
+    if mesh.is_editmode:
+        try:
+            bpy.ops.object.mode_set(mode='OBJECT')
+        except:
+            return
+    
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.verts.ensure_lookup_table()
+    
+    if len(bm.verts) != 8:
+        bm.free()
+        return
+    
+    for i, c in enumerate(coords):
+        if i < len(bm.verts):
+            bm.verts[i].co = c
+    
+    bm.verts.ensure_lookup_table()
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+    
+    # Uppdatera Boolean-modifierare
+    guide_type = innervagg_obj.get("guide_type", "INTERIOR")
+    _update_innervagg_boolean(innervagg_obj, scene, guide_type)
+
+
+def _update_innervagg_boolean(innervagg_obj, scene, guide_type):
+    """Uppdaterar Boolean-modifieraren på innerväggen"""
     guide_obj = None
     if guide_type == 'INTERIOR':
         for obj in scene.objects:
@@ -2225,7 +2360,6 @@ def _update_innervagg_boolean(innervagg_obj, scene, guide_type):
                 guide_obj = obj
                 break
     
-    # Ta bort befintlig Boolean-modifierare
     old_mod = None
     for mod in innervagg_obj.modifiers:
         if mod.type == 'BOOLEAN' and mod.name.startswith("Guide_"):
@@ -2235,16 +2369,14 @@ def _update_innervagg_boolean(innervagg_obj, scene, guide_type):
     if old_mod:
         innervagg_obj.modifiers.remove(old_mod)
     
-    # Om ingen guide eller 'NONE', avbryt
     if guide_type == 'NONE' or not guide_obj:
         return
     
-    # Lägg till ny Boolean-modifierare
     bm_mod = innervagg_obj.modifiers.new(name=f"Guide_{guide_type}", type='BOOLEAN')
     bm_mod.operation = 'INTERSECT'
     bm_mod.object = guide_obj
     bm_mod.solver = 'EXACT'
-    
+
 # ---------------------------------------------------------------------------
 # 19. MATERIAL-FUNKTIONER
 # ---------------------------------------------------------------------------

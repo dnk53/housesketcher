@@ -150,17 +150,18 @@ def bt_update_huvudmått(self, context):
     max_tak_hojd = max(nock_utsida, z1, z2)
     total_hojd = max(vagg_hojd, max_tak_hojd) + 0.010
     
-    # ----- UPPDATERA VÄGGARNA -----
-    # Använd den centrala funktionen som respekterar användarens höjd
+    # ----- UPPDATERA YTTERVÄGGARNA -----
     vagg_list = [o for o in scene.objects if o.get("typ") == "vägg"]
-    
     for vagg in vagg_list:
         utils.bt_update_single_vagg_from_props(vagg, context)
     
-    # ----- UPPDATERA BJÄLKLAGET -----
-    # Hitta ALLA bjälklag (inte bara markerade)
-    bjalklag_list = [obj for obj in scene.objects if obj.name.startswith("bjalklag")]
+    # ----- UPPDATERA INNERVÄGGARNA -----
+    innervagg_list = [o for o in scene.objects if o.get("typ") == "innervagg"]
+    for innervagg in innervagg_list:
+        utils.bt_update_single_innervagg(innervagg, context)
     
+    # ----- UPPDATERA BJÄLKLAGET -----
+    bjalklag_list = [obj for obj in scene.objects if obj.name.startswith("bjalklag")]
     if bjalklag_list:
         for bjalklag in bjalklag_list:
             utils.bt_update_single_bjalklag(bjalklag, context)
@@ -172,15 +173,15 @@ def bt_update_huvudmått(self, context):
         platt_l = fasad_l - indrag * 2
         platt_b = fasad_b - indrag * 2
         
-        p = scene.bt_platta
-        t = p.tjocklek
-        H = p.total_hojd
-        fb = p.forstyvning_bredd
+        p_platta = scene.bt_platta
+        t_platta = p_platta.tjocklek
+        H_platta = p_platta.total_hojd
+        fb = p_platta.forstyvning_bredd
         
-        if H - t < 0:
+        if H_platta - t_platta < 0:
             return
         
-        fi = (H - t) / math.tan(math.radians(p.lutning)) if p.lutning > 0 else 0
+        fi = (H_platta - t_platta) / math.tan(math.radians(p_platta.lutning)) if p_platta.lutning > 0 else 0
         x_min, y_min = 0, 0
         x_max, y_max = platt_l, platt_b
         x3, y3 = x_min + fb, y_min + fb
@@ -188,9 +189,9 @@ def bt_update_huvudmått(self, context):
         
         coords = [
             (x_min, y_min, 0), (x_max, y_min, 0), (x_max, y_max, 0), (x_min, y_max, 0),
-            (x_min, y_min, -H), (x_max, y_min, -H), (x_max, y_max, -H), (x_min, y_max, -H),
-            (x3, y3, -H), (x3b, y3, -H), (x3b, y3b, -H), (x3, y3b, -H),
-            (x3 + fi, y3 + fi, -t), (x3b - fi, y3 + fi, -t), (x3b - fi, y3b - fi, -t), (x3 + fi, y3b - fi, -t)
+            (x_min, y_min, -H_platta), (x_max, y_min, -H_platta), (x_max, y_max, -H_platta), (x_min, y_max, -H_platta),
+            (x3, y3, -H_platta), (x3b, y3, -H_platta), (x3b, y3b, -H_platta), (x3, y3b, -H_platta),
+            (x3 + fi, y3 + fi, -t_platta), (x3b - fi, y3 + fi, -t_platta), (x3b - fi, y3b - fi, -t_platta), (x3 + fi, y3b - fi, -t_platta)
         ]
         
         mesh = platta.data
@@ -217,17 +218,9 @@ def bt_update_huvudmått(self, context):
         platta.location = (indrag, indrag, 0)
 
     # ----- UPPDATERA TAKET -----
-    utils.bt_update_tak(self, context)    
-    tak_obj = None
-    for obj in scene.objects:
-        if obj.name.startswith("Tak_"):
-            tak_obj = obj
-            break
-
-    if tak_obj:
-        utils.bt_update_tak(self, context)
+    utils.bt_update_tak(self, context)
     
-    # Uppdatera mallarna
+    # ----- UPPDATERA MALLARNA -----
     utils.bt_update_wall_guide(self, context)
     utils.bt_update_all_guides(self, context)
 
@@ -305,7 +298,7 @@ class BT_HuvudmåttProperties(bpy.types.PropertyGroup):
     )
     
     taklutning: FloatProperty(
-        name="Roof Angle",  # <-- ÄNDRAD
+        name="Roof Angle",
         description="Angle of the lower roof (at eaves) in degrees",
         default=30.0,
         soft_min=-80.0,
@@ -342,7 +335,7 @@ class BT_HuvudmåttProperties(bpy.types.PropertyGroup):
     )
     
     taklutning_mansard: FloatProperty(
-        name="Upper Roof Angle",  # <-- ÄNDRAD
+        name="Upper Roof Angle",
         description="Angle of the mansard roof upper part, front side",
         default=15.0,
         soft_min=-80.0,
@@ -408,7 +401,7 @@ class BT_HuvudmåttProperties(bpy.types.PropertyGroup):
     )
     
     taklutning_bak: FloatProperty(
-        name="Roof Angle Back",  # <-- ÄNDRAD
+        name="Roof Angle Back",
         description="Angle of the lower roof on back side in degrees",
         default=20.0,
         soft_min=-60.0,
@@ -445,7 +438,7 @@ class BT_HuvudmåttProperties(bpy.types.PropertyGroup):
     )
     
     taklutning_mansard_bak: FloatProperty(
-        name="Upper Roof Angle Back",  # <-- ÄNDRAD
+        name="Upper Roof Angle Back",
         description="Angle of the mansard roof upper part, back side",
         default=15.0,
         soft_min=-60.0,

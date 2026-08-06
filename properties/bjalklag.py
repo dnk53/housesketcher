@@ -39,6 +39,15 @@ def bt_update_bjalklag(self, context):
         
         # Uppdatera geometrin (inklusive Boolean)
         utils.bt_update_single_bjalklag(bjalklag, context)
+    
+    # ----- UPPDATERA INNERVÄGGAR -----
+    # När bjälklaget uppdateras via UI, uppdatera alla innerväggar
+    for bjalklag in selected_bjalklag:
+        slab_top = bjalklag.location.z + bjalklag.get("tjocklek", 0.30)
+        innervagg_list = [o for o in scene.objects if o.get("typ") == "innervagg"]
+        for innervagg in innervagg_list:
+            innervagg["base_z"] = slab_top
+            utils.bt_update_single_innervagg(innervagg, context)
 
 
 def sync_bjalklag_panel_from_selection(context):

@@ -108,38 +108,38 @@ class MESH_OT_bt_skapa_innervagg(bpy.types.Operator):
         # Skapa vertices för väggen (8 hörn)
         coords = [
             # Botten (4 hörn)
-            center_x + (-half_length * dx - half_width * px),
-            center_y + (-half_length * dy - half_width * py),
-            base_z,
+            (center_x + (-half_length * dx - half_width * px),
+             center_y + (-half_length * dy - half_width * py),
+             base_z),
             
-            center_x + (half_length * dx - half_width * px),
-            center_y + (half_length * dy - half_width * py),
-            base_z,
+            (center_x + (half_length * dx - half_width * px),
+             center_y + (half_length * dy - half_width * py),
+             base_z),
             
-            center_x + (half_length * dx + half_width * px),
-            center_y + (half_length * dy + half_width * py),
-            base_z,
+            (center_x + (half_length * dx + half_width * px),
+             center_y + (half_length * dy + half_width * py),
+             base_z),
             
-            center_x + (-half_length * dx + half_width * px),
-            center_y + (-half_length * dy + half_width * py),
-            base_z,
+            (center_x + (-half_length * dx + half_width * px),
+             center_y + (-half_length * dy + half_width * py),
+             base_z),
             
             # Topp (4 hörn)
-            center_x + (-half_length * dx - half_width * px),
-            center_y + (-half_length * dy - half_width * py),
-            base_z + total_hojd,
+            (center_x + (-half_length * dx - half_width * px),
+             center_y + (-half_length * dy - half_width * py),
+             base_z + total_hojd),
             
-            center_x + (half_length * dx - half_width * px),
-            center_y + (half_length * dy - half_width * py),
-            base_z + total_hojd,
+            (center_x + (half_length * dx - half_width * px),
+             center_y + (half_length * dy - half_width * py),
+             base_z + total_hojd),
             
-            center_x + (half_length * dx + half_width * px),
-            center_y + (half_length * dy + half_width * py),
-            base_z + total_hojd,
+            (center_x + (half_length * dx + half_width * px),
+             center_y + (half_length * dy + half_width * py),
+             base_z + total_hojd),
             
-            center_x + (-half_length * dx + half_width * px),
-            center_y + (-half_length * dy + half_width * py),
-            base_z + total_hojd,
+            (center_x + (-half_length * dx + half_width * px),
+             center_y + (-half_length * dy + half_width * py),
+             base_z + total_hojd),
         ]
         
         # Faces (6 sidor)
@@ -165,8 +165,12 @@ class MESH_OT_bt_skapa_innervagg(bpy.types.Operator):
         
         # Skapa bmesh
         bm = bmesh.new()
-        for i in range(0, len(coords), 3):
-            bm.verts.new((coords[i], coords[i+1], coords[i+2]))
+        vert_indices = []  # <-- SPARA VERTEX-INDEX
+        
+        for c in coords:
+            v = bm.verts.new(c)
+            vert_indices.append(v.index)  # <-- SPARA INDEX
+        
         bm.verts.ensure_lookup_table()
         
         for f in faces:
@@ -192,7 +196,8 @@ class MESH_OT_bt_skapa_innervagg(bpy.types.Operator):
         obj["langd"] = p.langd
         obj["rotation"] = p.rotation
         obj["guide_type"] = p.guide_type
-        obj["base_z"] = base_z  # <-- Spara basnivå
+        obj["base_z"] = base_z
+        obj["innervagg_vertex_indices"] = vert_indices  # <-- SPARA VERTEX-INDEX
         
         # Parent till Referenspunkt
         empty = bpy.data.objects.get("Referenspunkt")

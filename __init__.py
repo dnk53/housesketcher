@@ -89,6 +89,7 @@ def register():
     bpy.types.Scene.bt_show_mansard = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_platta = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_vagg = bpy.props.BoolProperty(default=False)
+    bpy.types.Scene.bt_show_innervagg = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_tak = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_bjalklag = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_fonster = bpy.props.BoolProperty(default=False)
@@ -122,7 +123,7 @@ def unregister():
         'bt_tak', 'bt_bjalklag', 'bt_fonster', 'bt_dorr', 'bt_innervagg',
         'bt_show_huvudmått', 'bt_show_symmetrisk', 'bt_show_osymmetrisk',
         'bt_show_asymmetric', 'bt_show_mansard',
-        'bt_show_platta', 'bt_show_vagg', 'bt_show_tak', 
+        'bt_show_platta', 'bt_show_vagg', 'bt_show_innervagg', 'bt_show_tak', 
         'bt_show_bjalklag', 'bt_show_fonster', 'bt_show_dorr', 'bt_show_innervagg'
     ]
     for prop in props:
