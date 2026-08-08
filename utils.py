@@ -2240,33 +2240,59 @@ def bt_update_single_innervagg(innervagg_obj, context):
     else:
         total_hojd = hojd
     
-    # Beräkna byggnadens innermått
-    fasad_l = h.fasad_l
-    fasad_b = h.fasad_b
-    teoretisk_bredd = h.teoretisk_vagg_bredd
-    inner_l = fasad_l - teoretisk_bredd * 2
-    inner_b = fasad_b - teoretisk_bredd * 2
-    
     # Beräkna startpunkt
     if start_x == 0:
-        start_x = fasad_l / 2
+        start_x = h.fasad_l / 2
     if start_y == 0:
-        start_y = fasad_b / 2
+        start_y = h.fasad_b / 2
     
     # Beräkna längd
     rotation_rad = math.radians(rotation)
     
     if langd == 0:
-        if abs(rotation) < 1 or abs(rotation - 180) < 1 or abs(rotation + 180) < 1:
-            langd = inner_l
-        elif abs(rotation - 90) < 1 or abs(rotation + 90) < 1:
-            langd = inner_b
+        # Beräkna avstånd till yttervägg i rotationsriktningen
+        # Använd byggnadens YTTERMÅTT (fasad_l och fasad_b)
+        fasad_l = h.fasad_l
+        fasad_b = h.fasad_b
+        
+        # Riktningsvektor
+        dx = math.cos(rotation_rad)
+        dy = math.sin(rotation_rad)
+        
+        # Beräkna avstånd till alla fyra ytterväggar
+        dists = []
+        
+        # Höger vägg (x = fasad_l)
+        if dx > 0:
+            dists.append((fasad_l - start_x) / dx)
+        
+        # Vänster vägg (x = 0)
+        if dx < 0:
+            dists.append(-start_x / dx)
+        
+        # Framvägg (y = 0)
+        if dy > 0:
+            dists.append((fasad_b - start_y) / dy)
+        
+        # Bakvägg (y = 0)
+        if dy < 0:
+            dists.append(-start_y / dy)
+        
+        # Ta det minsta positiva avståndet
+        if dists:
+            langd = min(d for d in dists if d > 0)
         else:
             langd = 5.0
+        
+        # Begränsa till rimlig längd
+        if langd <= 0 or langd > 1000:
+            langd = 5.0
     
+    # Beräkna ändpunkt
     end_x = start_x + langd * math.cos(rotation_rad)
     end_y = start_y + langd * math.sin(rotation_rad)
     
+    # Beräkna väggens centrum och riktning
     center_x = (start_x + end_x) / 2
     center_y = (start_y + end_y) / 2
     dx = end_x - start_x
@@ -2276,14 +2302,19 @@ def bt_update_single_innervagg(innervagg_obj, context):
     if wall_length < 0.001:
         return
     
+    # Normalisera riktning
     dx /= wall_length
     dy /= wall_length
+    
+    # Vinkelrät riktning (för bredd)
     px = -dy
     py = dx
     
+    # Hälften av bredd och längd
     half_width = tjocklek / 2
     half_length = wall_length / 2
     
+    # Skapa koordinater för 8 hörn
     coords = [
         (center_x + (-half_length * dx - half_width * px),
          center_y + (-half_length * dy - half_width * py),
@@ -2311,6 +2342,7 @@ def bt_update_single_innervagg(innervagg_obj, context):
          base_z + total_hojd),
     ]
     
+    # Uppdatera mesh via vertex-flyttning
     mesh = innervagg_obj.data
     
     if mesh.is_editmode:
@@ -2339,7 +2371,6 @@ def bt_update_single_innervagg(innervagg_obj, context):
     # Uppdatera Boolean-modifierare
     guide_type = innervagg_obj.get("guide_type", "INTERIOR")
     _update_innervagg_boolean(innervagg_obj, scene, guide_type)
-
 
 def _update_innervagg_boolean(innervagg_obj, scene, guide_type):
     """Uppdaterar Boolean-modifieraren på innerväggen"""

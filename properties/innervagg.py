@@ -135,11 +135,12 @@ class BT_InnervaggProperties(bpy.types.PropertyGroup):
         name="Rotation",
         description="Innerväggens rotation i grader (0 = X-led)",
         default=0.0,
-        soft_min=-360.0,
-        soft_max=360.0,
-        step=100,
+        soft_min=0.0,
+        soft_max=270.0,
+        step=9000,          # <-- Steg om 90 grader
+        # subtype='ANGLE',  # <-- Visas som grader i UI:t
         update=bt_update_innervagg
-    )
+    )    
     
     guide_type: EnumProperty(
         name="Guide",
