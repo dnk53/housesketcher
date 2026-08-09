@@ -668,69 +668,110 @@ TAKDELAR_INFO = {
 # ---------------------------------------------------------------------------
 
 def bt_update_tak(self, context):
-    """Uppdaterar taket när användaren ändrar takparametrar"""
+    """Uppdaterar taket för det aktiva huset"""
     global _updating
     if _updating:
         return
     
-    scene = context.scene
+    _updating = True
     
-    # Hitta alla takdelar
-    takdelar_obj = {}
-    for obj in scene.objects:
-        if obj.name.startswith("Tak_"):
-            takdelar_obj[obj.name] = obj
-    
-    if not takdelar_obj:
-        return
-    
-    # Beräkna takgeometri med central funktion
-    geo = calculate_tak_geometry(scene)
-    
-    # Uppdatera varje takdel
-    for namn, info in TAKDELAR_INFO.items():
-        if namn not in takdelar_obj:
-            continue
+    try:
+        scene = context.scene
         
-        obj = takdelar_obj[namn]
-        mesh = obj.data
+        # Hitta aktivt hus
+        active_empty = get_active_house_empty(context)
+        if not active_empty:
+            return
         
-        if mesh.is_editmode:
-            try:
-                bpy.ops.object.mode_set(mode='OBJECT')
-            except:
+        # Hämta husets mått från Empty
+        house_data = get_house_data(active_empty)
+        if not house_data:
+            return
+        
+        # Hitta takdelar som hör till denna Empty
+        takdelar_obj = {}
+        for obj in scene.objects:
+            if obj.name.startswith("Tak_") and obj.parent == active_empty:
+                takdelar_obj[obj.name] = obj
+        
+        if not takdelar_obj:
+            return
+        
+        # Sätt temporärt huvudmått från Empty
+        h = scene.bt_huvudmått
+        original_values = {}
+        
+        for key in house_data.keys():
+            if hasattr(h, key):
+                original_values[key] = getattr(h, key)
+        
+        for key, value in house_data.items():
+            if hasattr(h, key):
+                setattr(h, key, value)
+        
+        # Beräkna takgeometri (Globala koordinater, baserat på origo)
+        geo = calculate_tak_geometry(scene)
+        
+        # Återställ originalvärden
+        for key, value in original_values.items():
+            if hasattr(h, key):
+                setattr(h, key, value)
+        
+        # Uppdatera varje takdel med LOKALA koordinater
+        for namn, info in TAKDELAR_INFO.items():
+            if namn not in takdelar_obj:
                 continue
-        
-        v_indices = info["v_indices"]
-        h_indices = info["h_indices"]
-        
-        # Hämta nya vertices för denna del
-        del_verts = []
-        for idx in v_indices:
-            del_verts.append(geo['v_verts'][idx])
-        for idx in h_indices:
-            del_verts.append(geo['h_verts'][idx])
-        
-        # Uppdatera vertices i meshen
-        bm = bmesh.new()
-        bm.from_mesh(mesh)
-        bm.verts.ensure_lookup_table()
-        
-        if len(bm.verts) != len(del_verts):
+            
+            obj = takdelar_obj[namn]
+            mesh = obj.data
+            
+            if mesh.is_editmode:
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                except:
+                    continue
+            
+            v_indices = info["v_indices"]
+            h_indices = info["h_indices"]
+            
+            # Hämta globala vertices från beräkningen
+            del_verts = []
+            for idx in v_indices:
+                del_verts.append(geo['v_verts'][idx])
+            for idx in h_indices:
+                del_verts.append(geo['h_verts'][idx])
+            
+            # Eftersom taket är barn till Empty, och Empty är vid origo,
+            # är Global = Local. Så vi kan använda del_verts direkt.
+            # MEN: om Empty inte är vid origo, måste vi subtrahera offset.
+            # Eftersom vi vill att taket ska vara lokalt, använder vi
+            # koordinaterna direkt (de är redan baserade på origo).
+            
+            bm = bmesh.new()
+            bm.from_mesh(mesh)
+            bm.verts.ensure_lookup_table()
+            
+            if len(bm.verts) != len(del_verts):
+                bm.free()
+                continue
+            
+            for i, v3 in enumerate(del_verts):
+                bm.verts[i].co = v3
+            
+            bm.verts.ensure_lookup_table()
+            bm.to_mesh(mesh)
             bm.free()
-            continue
+            mesh.update()
+            
+            # Se till att objektet inte har någon lokal förskjutning
+            obj.location = (0, 0, 0)
         
-        for i, v3 in enumerate(del_verts):
-            bm.verts[i].co = v3
-        
-        bm.verts.ensure_lookup_table()
-        bm.to_mesh(mesh)
-        bm.free()
-        mesh.update()
+        # Uppdatera guiderna för detta hus
+        bt_update_wall_guide(self, context)
+        bt_update_all_guides(self, context)
     
-    # Uppdatera guiderna
-    bt_update_wall_guide(self, context)
-    bt_update_all_guides(self, context)
+    finally:
+        _updating = False
 
 # ---------------------------------------------------------------------------
 # 8. GUIDES - SKAPA FUNKTIONER
@@ -1075,147 +1116,153 @@ def bt_update_wall_guide(self, context):
     if _updating:
         return
     
-    scene = context.scene
+    _updating = True
     
-    # Hitta guiden
-    guide_obj = None
-    for obj in scene.objects:
-        if obj.name == "Wall_Guide":
-            guide_obj = obj
-            break
-    
-    if not guide_obj:
-        return
-    
-    # Hämta huvudmått
-    h = scene.bt_huvudmått
-    fasad_l = h.fasad_l
-    fasad_b = h.fasad_b
-    vagg_bredd = h.teoretisk_vagg_bredd
-    taktjocklek = h.taktjocklek
-    
-    # Hämta taktyp
-    roof_type = h.roof_type
-    single_slope_roof = (roof_type != 'GABLE')
-    slope_front = (roof_type == 'SHED_FRONT')
-    slope_back = (roof_type == 'SHED_BACK')
-    
-    from math import radians, tan
-    
-    e = h.vagg_hojd
-    if h.använd_symmetrisk_vagg_hojd:
-        k = h.vagg_hojd_bak
-    else:
-        k = h.vagg_hojd
-    
-    v0 = radians(h.taklutning)
-    if h.använd_symmetrisk_taklutning:
-        v2 = radians(h.taklutning_bak)
-    else:
-        v2 = v0
-    
-    if h.använd_mansard_fram:
-        v1 = radians(h.taklutning_mansard)
-    else:
-        v1 = v0
-    
-    if h.använd_mansard_bak:
-        v3 = radians(h.taklutning_mansard_bak)
-    else:
-        if h.använd_symmetrisk_taklutning:
-            v3 = v2
-        else:
-            if h.använd_mansard_fram:
-                v3 = v1
-            else:
-                v3 = v0
-    
-    takutsprång_hitsida = h.takutsprång
-    if h.använd_symmetrisk_takutsprång:
-        m = h.takutsprång_bak
-    else:
-        m = takutsprång_hitsida
-    
-    gavelutsprång_vanster = h.gavelutsprång
-    if h.använd_symmetrisk_gavelutsprång:
-        n = h.gavelutsprång_hoger
-    else:
-        n = gavelutsprång_vanster
-
-    t = scene.bt_tak
-    brytavstand = t.brytavstand
-    
-    if h.använd_brytavstand_fram:
-        brytavstand_hitsida = h.brytavstand_mansard
-    else:
-        brytavstand_hitsida = brytavstand
-    
-    if h.använd_brytavstand_bak:
-        p = h.brytavstand_mansard_bak
-    else:
-        p = brytavstand_hitsida
-    
-    innertak_z_fram = e - vagg_bredd * tan(v0)
-    innertak_z_bak = k - vagg_bredd * tan(v2)
-    
-    z1 = innertak_z_fram + brytavstand_hitsida * tan(v0)
-    z2 = innertak_z_bak + p * tan(v2)
-    
-    y_avstand = fasad_b - brytavstand_hitsida - p
-    
-    if tan(v1) + tan(v3) != 0:
-        y1 = (y_avstand * tan(v3) - z1 + z2) / (tan(v1) + tan(v3))
-    else:
-        y1 = y_avstand / 2
-    
-    if single_slope_roof:
-        if slope_front:
-            y1 = fasad_b - brytavstand_hitsida
-        elif slope_back:
-            y1 = brytavstand_hitsida
-    
-    nock_z = z1 + y1 * tan(v1)
-    
-    # Uppdatera vertices
-    mesh = guide_obj.data
-    
-    if mesh.is_editmode:
-        try:
-            bpy.ops.object.mode_set(mode='OBJECT')
-        except:
+    try:
+        scene = context.scene
+        
+        # Hitta guiden
+        guide_obj = None
+        for obj in scene.objects:
+            if obj.name == "Wall_Guide":
+                guide_obj = obj
+                break
+        
+        if not guide_obj:
             return
-    
-    bm = bmesh.new()
-    bm.from_mesh(mesh)
-    bm.verts.ensure_lookup_table()
-    
-    if len(bm.verts) != 14:
-        bm.free()
-        return
-    
-    # Vänster sida (0-6)
-    bm.verts[0].co = (-gavelutsprång_vanster, -0.0001, 0.0)
-    bm.verts[1].co = (-gavelutsprång_vanster, -0.0001, innertak_z_fram)
-    bm.verts[2].co = (-gavelutsprång_vanster, brytavstand_hitsida, z1)
-    bm.verts[3].co = (-gavelutsprång_vanster, brytavstand_hitsida + y1, nock_z)
-    bm.verts[4].co = (-gavelutsprång_vanster, fasad_b - p, z2)
-    bm.verts[5].co = (-gavelutsprång_vanster, fasad_b + 0.0001, innertak_z_bak)
-    bm.verts[6].co = (-gavelutsprång_vanster, fasad_b + 0.0001, 0.0)
-    
-    # Höger sida (7-13)
-    bm.verts[7].co = (fasad_l + n, -0.0001, 0.0)
-    bm.verts[8].co = (fasad_l + n, -0.0001, innertak_z_fram)
-    bm.verts[9].co = (fasad_l + n, brytavstand_hitsida, z1)
-    bm.verts[10].co = (fasad_l + n, brytavstand_hitsida + y1, nock_z)
-    bm.verts[11].co = (fasad_l + n, fasad_b - p, z2)
-    bm.verts[12].co = (fasad_l + n, fasad_b + 0.0001, innertak_z_bak)
-    bm.verts[13].co = (fasad_l + n, fasad_b + 0.0001, 0.0)
-    
-    bm.verts.ensure_lookup_table()
-    bm.to_mesh(mesh)
-    bm.free()
-    mesh.update()
+        
+        # Hämta huvudmått
+        h = scene.bt_huvudmått
+        fasad_l = h.fasad_l
+        fasad_b = h.fasad_b
+        vagg_bredd = h.teoretisk_vagg_bredd
+        taktjocklek = h.taktjocklek
+        
+        # Hämta taktyp
+        roof_type = h.roof_type
+        single_slope_roof = (roof_type != 'GABLE')
+        slope_front = (roof_type == 'SHED_FRONT')
+        slope_back = (roof_type == 'SHED_BACK')
+        
+        from math import radians, tan
+        
+        e = h.vagg_hojd
+        if h.använd_symmetrisk_vagg_hojd:
+            k = h.vagg_hojd_bak
+        else:
+            k = h.vagg_hojd
+        
+        v0 = radians(h.taklutning)
+        if h.använd_symmetrisk_taklutning:
+            v2 = radians(h.taklutning_bak)
+        else:
+            v2 = v0
+        
+        if h.använd_mansard_fram:
+            v1 = radians(h.taklutning_mansard)
+        else:
+            v1 = v0
+        
+        if h.använd_mansard_bak:
+            v3 = radians(h.taklutning_mansard_bak)
+        else:
+            if h.använd_symmetrisk_taklutning:
+                v3 = v2
+            else:
+                if h.använd_mansard_fram:
+                    v3 = v1
+                else:
+                    v3 = v0
+        
+        takutsprång_hitsida = h.takutsprång
+        if h.använd_symmetrisk_takutsprång:
+            m = h.takutsprång_bak
+        else:
+            m = takutsprång_hitsida
+        
+        gavelutsprång_vanster = h.gavelutsprång
+        if h.använd_symmetrisk_gavelutsprång:
+            n = h.gavelutsprång_hoger
+        else:
+            n = gavelutsprång_vanster
 
+        t = scene.bt_tak
+        brytavstand = t.brytavstand
+        
+        if h.använd_brytavstand_fram:
+            brytavstand_hitsida = h.brytavstand_mansard
+        else:
+            brytavstand_hitsida = brytavstand
+        
+        if h.använd_brytavstand_bak:
+            p = h.brytavstand_mansard_bak
+        else:
+            p = brytavstand_hitsida
+        
+        # ----- BERÄKNA TAKETS UNDERSIDA (INVÄNDIGT) -----
+        innertak_z_fram = e - vagg_bredd * tan(v0)
+        innertak_z_bak = k - vagg_bredd * tan(v2)
+        
+        z1 = innertak_z_fram + brytavstand_hitsida * tan(v0)
+        z2 = innertak_z_bak + p * tan(v2)
+        
+        y_avstand = fasad_b - brytavstand_hitsida - p
+        
+        if tan(v1) + tan(v3) != 0:
+            y1 = (y_avstand * tan(v3) - z1 + z2) / (tan(v1) + tan(v3))
+        else:
+            y1 = y_avstand / 2
+        
+        if single_slope_roof:
+            if slope_front:
+                y1 = fasad_b - brytavstand_hitsida
+            elif slope_back:
+                y1 = brytavstand_hitsida
+        
+        nock_z = z1 + y1 * tan(v1)
+        
+        # Uppdatera vertices
+        mesh = guide_obj.data
+        
+        if mesh.is_editmode:
+            try:
+                bpy.ops.object.mode_set(mode='OBJECT')
+            except:
+                return
+        
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bm.verts.ensure_lookup_table()
+        
+        if len(bm.verts) != 14:
+            bm.free()
+            return
+        
+        # Vänster sida (0-6)
+        bm.verts[0].co = (-gavelutsprång_vanster, -0.0001, 0.0)
+        bm.verts[1].co = (-gavelutsprång_vanster, -0.0001, innertak_z_fram)
+        bm.verts[2].co = (-gavelutsprång_vanster, brytavstand_hitsida, z1)
+        bm.verts[3].co = (-gavelutsprång_vanster, brytavstand_hitsida + y1, nock_z)
+        bm.verts[4].co = (-gavelutsprång_vanster, fasad_b - p, z2)
+        bm.verts[5].co = (-gavelutsprång_vanster, fasad_b + 0.0001, innertak_z_bak)
+        bm.verts[6].co = (-gavelutsprång_vanster, fasad_b + 0.0001, 0.0)
+        
+        # Höger sida (7-13)
+        bm.verts[7].co = (fasad_l + n, -0.0001, 0.0)
+        bm.verts[8].co = (fasad_l + n, -0.0001, innertak_z_fram)
+        bm.verts[9].co = (fasad_l + n, brytavstand_hitsida, z1)
+        bm.verts[10].co = (fasad_l + n, brytavstand_hitsida + y1, nock_z)
+        bm.verts[11].co = (fasad_l + n, fasad_b - p, z2)
+        bm.verts[12].co = (fasad_l + n, fasad_b + 0.0001, innertak_z_bak)
+        bm.verts[13].co = (fasad_l + n, fasad_b + 0.0001, 0.0)
+        
+        bm.verts.ensure_lookup_table()
+        bm.to_mesh(mesh)
+        bm.free()
+        mesh.update()
+    
+    finally:
+        _updating = False
 
 def bt_update_exterior_guide(self, context):
     """Updates Exterior_Guide when roof parameters change"""
@@ -1238,55 +1285,39 @@ def bt_update_exterior_guide(self, context):
     _update_exterior_guide(guide_obj, geo)
 
 
-def bt_update_interior_guide(self, context):
-    """Updates Interior_Guide when roof parameters change"""
-    global _updating
-    if _updating:
-        return
-    
-    scene = context.scene
-    
-    guide_obj = None
-    for obj in scene.objects:
-        if obj.name == "Interior_Guide":
-            guide_obj = obj
-            break
-    
-    if not guide_obj:
-        return
-    
-    geo = calculate_tak_geometry(scene)
-    _update_interior_guide(guide_obj, geo)
-
-
 def bt_update_all_guides(self, context):
     """Updates all guides (Wall_Guide, Exterior_Guide, Interior_Guide)"""
     global _updating
     if _updating:
         return
     
-    scene = context.scene
+    _updating = True
     
-    wall_guide = None
-    exterior_guide = None
-    interior_guide = None
+    try:
+        scene = context.scene
+        
+        wall_guide = None
+        exterior_guide = None
+        interior_guide = None
+        
+        for obj in scene.objects:
+            if obj.name == "Wall_Guide":
+                wall_guide = obj
+            elif obj.name == "Exterior_Guide":
+                exterior_guide = obj
+            elif obj.name == "Interior_Guide":
+                interior_guide = obj
+        
+        if not wall_guide or not exterior_guide or not interior_guide:
+            return
+        
+        geo = calculate_tak_geometry(scene)
+        
+        _update_exterior_guide(exterior_guide, geo)
+        _update_interior_guide(interior_guide, geo)
     
-    for obj in scene.objects:
-        if obj.name == "Wall_Guide":
-            wall_guide = obj
-        elif obj.name == "Exterior_Guide":
-            exterior_guide = obj
-        elif obj.name == "Interior_Guide":
-            interior_guide = obj
-    
-    if not wall_guide or not exterior_guide or not interior_guide:
-        return
-    
-    geo = calculate_tak_geometry(scene)
-    
-    _update_exterior_guide(exterior_guide, geo)
-    _update_interior_guide(interior_guide, geo)
-
+    finally:
+        _updating = False
 
 def _update_exterior_guide(guide_obj, geo):
     """Updates Exterior_Guide with calculated geometry"""
@@ -1402,6 +1433,72 @@ def _update_interior_guide(guide_obj, geo):
     bm.free()
     mesh.update()
 
+def _update_interior_guide(guide_obj, geo):
+    """Updates Interior_Guide with calculated geometry"""
+    mesh = guide_obj.data
+    
+    if mesh.is_editmode:
+        try:
+            bpy.ops.object.mode_set(mode='OBJECT')
+        except:
+            return
+    
+    bm = bmesh.new()
+    bm.from_mesh(mesh)
+    bm.verts.ensure_lookup_table()
+    
+    if len(bm.verts) != 14:
+        bm.free()
+        return
+    
+    vagg_bredd = geo['vagg_bredd']
+    e = geo['e'] - 0.0001
+    k = geo['k'] - 0.0001
+    
+    brytavstand_insida_fram = geo['brytavstand_hitsida'] - vagg_bredd
+    brytavstand_insida_bak = geo['brytavstand_bak'] - vagg_bredd
+    
+    z1_inner = e + brytavstand_insida_fram * tan(geo['v0'])
+    z2_inner = k + brytavstand_insida_bak * tan(geo['v2'])
+    
+    y_bryt_fram_inner = vagg_bredd + brytavstand_insida_fram + 0.0001
+    y_bryt_bak_inner = geo['fasad_b'] - vagg_bredd - brytavstand_insida_bak - 0.0001
+    
+    y_avstand_inner = geo['fasad_b'] - geo['brytavstand_hitsida'] - geo['brytavstand_bak']
+    if tan(geo['v1']) + tan(geo['v3']) != 0:
+        y1_inner = (y_avstand_inner * tan(geo['v3']) - z1_inner + z2_inner) / (tan(geo['v1']) + tan(geo['v3']))
+    else:
+        y1_inner = y_avstand_inner / 2
+    
+    nock_z_inner = z1_inner + y1_inner * tan(geo['v1'])
+    y_nock_inner = geo['brytavstand_hitsida'] + y1_inner
+    
+    y_fram_inner = vagg_bredd + 0.0001
+    y_bak_inner = geo['fasad_b'] - vagg_bredd - 0.0001
+    
+    x_vanster_inner = vagg_bredd + 0.0001
+    bm.verts[0].co = (x_vanster_inner, y_fram_inner, 0.0)
+    bm.verts[1].co = (x_vanster_inner, y_fram_inner, e)
+    bm.verts[2].co = (x_vanster_inner, y_bryt_fram_inner, z1_inner)
+    bm.verts[3].co = (x_vanster_inner, y_nock_inner, nock_z_inner)
+    bm.verts[4].co = (x_vanster_inner, y_bryt_bak_inner, z2_inner)
+    bm.verts[5].co = (x_vanster_inner, y_bak_inner, k)
+    bm.verts[6].co = (x_vanster_inner, y_bak_inner, 0.0)
+    
+    x_hoger_inner = geo['fasad_l'] - vagg_bredd - 0.0001
+    bm.verts[7].co = (x_hoger_inner, y_fram_inner, 0.0)
+    bm.verts[8].co = (x_hoger_inner, y_fram_inner, e)
+    bm.verts[9].co = (x_hoger_inner, y_bryt_fram_inner, z1_inner)
+    bm.verts[10].co = (x_hoger_inner, y_nock_inner, nock_z_inner)
+    bm.verts[11].co = (x_hoger_inner, y_bryt_bak_inner, z2_inner)
+    bm.verts[12].co = (x_hoger_inner, y_bak_inner, k)
+    bm.verts[13].co = (x_hoger_inner, y_bak_inner, 0.0)
+    
+    bm.verts.ensure_lookup_table()
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
+
 # ---------------------------------------------------------------------------
 # 10. REALTIDSUPPDATERING - BJÄLKLAG
 # ---------------------------------------------------------------------------
@@ -1434,6 +1531,7 @@ def compute_bjalklag_matt(scene):
     pos_z = p.niva_z - H
     
     return langd_x, bredd_y, H, start_x, start_y, pos_z
+
 
 def bt_update_single_bjalklag(bjalklag_obj, context):
     """Uppdaterar ett enskilt bjälklags geometri baserat på dess egna parametrar"""
@@ -1502,24 +1600,37 @@ def bt_update_single_bjalklag(bjalklag_obj, context):
     # Uppdatera position
     bjalklag_obj.location = (start_x, start_y, pos_z)
     
+    # ----- UPPDATERA INNERVÄGGAR SOM HÖR TILL DETTA BJÄLKLAG -----
+    slab_top = bjalklag_obj.location.z + bjalklag_obj.get("tjocklek", 0.30)
+    
+    for innervagg in scene.objects:
+        if innervagg.get("typ") == "innervagg":
+            slab_parent = innervagg.get("slab_parent")
+            if slab_parent == bjalklag_obj.name:
+                innervagg["base_z"] = slab_top
+                bt_update_single_innervagg(innervagg, context)
+    
     # ----- UPPDATERA BOOLEAN-MODIFIERARE -----
     guide_type = bjalklag_obj.get("guide_type", "INTERIOR")
     
-    # Hitta guiden
+    # Hitta rätt Empty (bjälklagets parent)
+    parent_empty = bjalklag_obj.parent
+    
+    # Hitta guiden - använd parent för att hitta rätt guide
     guide_obj = None
     if guide_type == 'INTERIOR':
         for obj in scene.objects:
-            if obj.name == "Interior_Guide":
+            if obj.name == "Interior_Guide" and obj.parent == parent_empty:
                 guide_obj = obj
                 break
     elif guide_type == 'EXTERIOR':
         for obj in scene.objects:
-            if obj.name == "Exterior_Guide":
+            if obj.name == "Exterior_Guide" and obj.parent == parent_empty:
                 guide_obj = obj
                 break
     elif guide_type == 'WALL':
         for obj in scene.objects:
-            if obj.name == "Wall_Guide":
+            if obj.name == "Wall_Guide" and obj.parent == parent_empty:
                 guide_obj = obj
                 break
     
@@ -1542,14 +1653,6 @@ def bt_update_single_bjalklag(bjalklag_obj, context):
     bm_mod.operation = 'INTERSECT'
     bm_mod.object = guide_obj
     bm_mod.solver = 'EXACT'
-    
-    # ----- UPPDATERA INNERVÄGGAR SOM STÅR PÅ DETTA BJÄLKLAG -----
-    # När bjälklaget uppdateras, uppdatera alla innerväggar
-    slab_top = bjalklag_obj.location.z + bjalklag_obj.get("tjocklek", 0.30)
-    innervagg_list = [o for o in scene.objects if o.get("typ") == "innervagg"]
-    for innervagg in innervagg_list:
-        innervagg["base_z"] = slab_top
-        bt_update_single_innervagg(innervagg, context)
 
 def bt_update_bjalklag(self, context):
     """Uppdaterar markerade bjälklag när parametrar ändras i panelen"""
@@ -2036,7 +2139,136 @@ def _calculate_total_wall_height(scene):
     
     max_tak_hojd = max(nock_utsida, z1, z2)
     return max(h.vagg_hojd, max_tak_hojd) + 0.010
+# ---------------------------------------------------------------------------
+# HJÄLPFUNKTIONER FÖR HUS-HANTERING
+# ---------------------------------------------------------------------------
 
+def get_active_house_empty(context):
+    """Hittar rätt Empty för det aktiva huset baserat på markering"""
+    
+    # 1. Kolla markerade objekt
+    for obj in context.selected_objects:
+        current = obj
+        while current:
+            if current.name.startswith("Referenspunkt"):
+                return current
+            current = current.parent
+    
+    # 2. Kolla active_object
+    if context.active_object:
+        current = context.active_object
+        while current:
+            if current.name.startswith("Referenspunkt"):
+                return current
+            current = current.parent
+    
+    # 3. Om inget hittas, använd första bästa Empty
+    for obj in context.scene.objects:
+        if obj.name.startswith("Referenspunkt"):
+            return obj
+    
+    return None
+
+
+def get_house_data(empty_obj):
+    """Hämtar alla husmått från Empty"""
+    if not empty_obj:
+        return None
+    
+    data = {
+        'fasad_l': empty_obj.get("fasad_l", 18.0),
+        'fasad_b': empty_obj.get("fasad_b", 12.0),
+        'vagg_hojd': empty_obj.get("vagg_hojd", 4.0),
+        'taklutning': empty_obj.get("taklutning", 30.0),
+        'roof_type': empty_obj.get("roof_type", 'GABLE'),
+        'taktjocklek': empty_obj.get("taktjocklek", 0.20),
+        'teoretisk_bredd': empty_obj.get("teoretisk_bredd", 0.15),
+        'gavelutsprång': empty_obj.get("gavelutsprång", 0.3),
+        'takutsprång': empty_obj.get("takutsprång", 0.3),
+        'använd_symmetrisk_vagg_hojd': empty_obj.get("använd_symmetrisk_vagg_hojd", False),
+        'vagg_hojd_bak': empty_obj.get("vagg_hojd_bak", 4.0),
+        'använd_symmetrisk_taklutning': empty_obj.get("använd_symmetrisk_taklutning", False),
+        'taklutning_bak': empty_obj.get("taklutning_bak", 20.0),
+        'använd_symmetrisk_takutsprång': empty_obj.get("använd_symmetrisk_takutsprång", False),
+        'takutsprång_bak': empty_obj.get("takutsprång_bak", 0.3),
+        'använd_symmetrisk_gavelutsprång': empty_obj.get("använd_symmetrisk_gavelutsprång", False),
+        'gavelutsprång_hoger': empty_obj.get("gavelutsprång_hoger", 0.3),
+        'använd_mansard_fram': empty_obj.get("använd_mansard_fram", False),
+        'taklutning_mansard': empty_obj.get("taklutning_mansard", 15.0),
+        'använd_brytavstand_fram': empty_obj.get("använd_brytavstand_fram", False),
+        'brytavstand_mansard': empty_obj.get("brytavstand_mansard", 1.5),
+        'använd_mansard_bak': empty_obj.get("använd_mansard_bak", False),
+        'taklutning_mansard_bak': empty_obj.get("taklutning_mansard_bak", 15.0),
+        'använd_brytavstand_bak': empty_obj.get("använd_brytavstand_bak", False),
+        'brytavstand_mansard_bak': empty_obj.get("brytavstand_mansard_bak", 1.5),
+    }
+    return data
+
+
+def update_house_data(empty_obj, scene):
+    """Uppdaterar Empty med aktuella huvudmått från scene"""
+    if not empty_obj:
+        return
+    
+    h = scene.bt_huvudmått
+    
+    empty_obj["fasad_l"] = h.fasad_l
+    empty_obj["fasad_b"] = h.fasad_b
+    empty_obj["vagg_hojd"] = h.vagg_hojd
+    empty_obj["taklutning"] = h.taklutning
+    empty_obj["roof_type"] = h.roof_type
+    empty_obj["taktjocklek"] = h.taktjocklek
+    empty_obj["teoretisk_bredd"] = h.teoretisk_vagg_bredd
+    empty_obj["gavelutsprång"] = h.gavelutsprång
+    empty_obj["takutsprång"] = h.takutsprång
+    
+    empty_obj["använd_symmetrisk_vagg_hojd"] = h.använd_symmetrisk_vagg_hojd
+    empty_obj["vagg_hojd_bak"] = h.vagg_hojd_bak
+    empty_obj["använd_symmetrisk_taklutning"] = h.använd_symmetrisk_taklutning
+    empty_obj["taklutning_bak"] = h.taklutning_bak
+    empty_obj["använd_symmetrisk_takutsprång"] = h.använd_symmetrisk_takutsprång
+    empty_obj["takutsprång_bak"] = h.takutsprång_bak
+    empty_obj["använd_symmetrisk_gavelutsprång"] = h.använd_symmetrisk_gavelutsprång
+    empty_obj["gavelutsprång_hoger"] = h.gavelutsprång_hoger
+    
+    empty_obj["använd_mansard_fram"] = h.använd_mansard_fram
+    empty_obj["taklutning_mansard"] = h.taklutning_mansard
+    empty_obj["använd_brytavstand_fram"] = h.använd_brytavstand_fram
+    empty_obj["brytavstand_mansard"] = h.brytavstand_mansard
+    empty_obj["använd_mansard_bak"] = h.använd_mansard_bak
+    empty_obj["taklutning_mansard_bak"] = h.taklutning_mansard_bak
+    empty_obj["använd_brytavstand_bak"] = h.använd_brytavstand_bak
+    empty_obj["brytavstand_mansard_bak"] = h.brytavstand_mansard_bak
+
+
+def belongs_to_slab(innervagg_obj, slab_obj):
+    """Kollar om en innervägg hör till ett specifikt bjälklag"""
+    parent_name = innervagg_obj.get("slab_parent")
+    if parent_name == slab_obj.name:
+        return True
+    return False
+
+
+def belongs_to_slab(innervagg_obj, slab_obj):
+    """Kollar om en innervägg hör till ett specifikt bjälklag"""
+    
+    # Kolla namn
+    parent_name = innervagg_obj.get("slab_parent")
+    if parent_name == slab_obj.name:
+        return True
+    
+    return False
+
+
+def get_innervaggar_for_slab(slab_obj, scene):
+    """Returnerar alla innerväggar som hör till ett specifikt bjälklag"""
+    innervaggar = []
+    for obj in scene.objects:
+        if obj.get("typ") == "innervagg":
+            if belongs_to_slab(obj, slab_obj):
+                innervaggar.append(obj)
+    return innervaggar
+    
 # ---------------------------------------------------------------------------
 # 17. MSGBUS - För effektiv uppdatering av guider
 # ---------------------------------------------------------------------------
@@ -2374,23 +2606,26 @@ def bt_update_single_innervagg(innervagg_obj, context):
 
 def _update_innervagg_boolean(innervagg_obj, scene, guide_type):
     """Uppdaterar Boolean-modifieraren på innerväggen"""
+    
+    # Hitta rätt Empty (innerväggens parent)
+    parent_empty = innervagg_obj.parent
+    
     guide_obj = None
     if guide_type == 'INTERIOR':
         for obj in scene.objects:
-            if obj.name == "Interior_Guide":
+            if obj.name == "Interior_Guide" and obj.parent == parent_empty:
                 guide_obj = obj
                 break
     elif guide_type == 'EXTERIOR':
         for obj in scene.objects:
-            if obj.name == "Exterior_Guide":
+            if obj.name == "Exterior_Guide" and obj.parent == parent_empty:
                 guide_obj = obj
                 break
     elif guide_type == 'WALL':
         for obj in scene.objects:
-            if obj.name == "Wall_Guide":
+            if obj.name == "Wall_Guide" and obj.parent == parent_empty:
                 guide_obj = obj
-                break
-    
+                break    
     old_mod = None
     for mod in innervagg_obj.modifiers:
         if mod.type == 'BOOLEAN' and mod.name.startswith("Guide_"):
@@ -2407,6 +2642,7 @@ def _update_innervagg_boolean(innervagg_obj, scene, guide_type):
     bm_mod.operation = 'INTERSECT'
     bm_mod.object = guide_obj
     bm_mod.solver = 'EXACT'
+
 
 # ---------------------------------------------------------------------------
 # 19. MATERIAL-FUNKTIONER

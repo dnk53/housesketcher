@@ -156,12 +156,42 @@ class MESH_OT_bt_skapa_hus(bpy.types.Operator):
             hus_collection.children.link(vagg_collection)
 
         # 0. SKAPA REFERENSPUNKT
-        # Placera en Empty i origo
         print("SKAPAR EMPTY NU")
         empty = bpy.data.objects.new("Referenspunkt", None)
         bpy.context.collection.objects.link(empty)
         empty.empty_display_type = 'PLAIN_AXES'
         empty.location = (0, 0, 0)
+        
+        # ----- SPARA ALLA HUSMÅTT PÅ EMPTY -----
+        empty["fasad_l"] = fasad_l
+        empty["fasad_b"] = fasad_b
+        empty["vagg_hojd"] = vagg_hojd
+        empty["taklutning"] = h.taklutning
+        empty["roof_type"] = h.roof_type
+        empty["taktjocklek"] = h.taktjocklek
+        empty["teoretisk_bredd"] = h.teoretisk_vagg_bredd
+        empty["gavelutsprång"] = h.gavelutsprång
+        empty["takutsprång"] = h.takutsprång
+        
+        # Asymmetriska mått
+        empty["använd_symmetrisk_vagg_hojd"] = h.använd_symmetrisk_vagg_hojd
+        empty["vagg_hojd_bak"] = h.vagg_hojd_bak
+        empty["använd_symmetrisk_taklutning"] = h.använd_symmetrisk_taklutning
+        empty["taklutning_bak"] = h.taklutning_bak
+        empty["använd_symmetrisk_takutsprång"] = h.använd_symmetrisk_takutsprång
+        empty["takutsprång_bak"] = h.takutsprång_bak
+        empty["använd_symmetrisk_gavelutsprång"] = h.använd_symmetrisk_gavelutsprång
+        empty["gavelutsprång_hoger"] = h.gavelutsprång_hoger
+        
+        # Mansard-mått
+        empty["använd_mansard_fram"] = h.använd_mansard_fram
+        empty["taklutning_mansard"] = h.taklutning_mansard
+        empty["använd_brytavstand_fram"] = h.använd_brytavstand_fram
+        empty["brytavstand_mansard"] = h.brytavstand_mansard
+        empty["använd_mansard_bak"] = h.använd_mansard_bak
+        empty["taklutning_mansard_bak"] = h.taklutning_mansard_bak
+        empty["använd_brytavstand_bak"] = h.använd_brytavstand_bak
+        empty["brytavstand_mansard_bak"] = h.brytavstand_mansard_bak
         
         # 1. SKAPA PLATTA
         if hasattr(p_platta, 'fasad_l'):
@@ -213,7 +243,7 @@ class MESH_OT_bt_skapa_hus(bpy.types.Operator):
         fram_vagg["vagg_typ"] = "fram"
         fram_vagg["vagg_position"] = "fram"
         fram_vagg["start_x"] = teoretisk_bredd
-        fram_vagg["langd_x"] = -teoretisk_bredd  # <-- ÄNDRAD
+        fram_vagg["langd_x"] = -teoretisk_bredd
         fram_vagg["vagg_bredd"] = 0.0
         fram_vagg["vagg_hojd"] = 0.0
         fram_vagg["spegelvänd"] = False
@@ -234,8 +264,8 @@ class MESH_OT_bt_skapa_hus(bpy.types.Operator):
         )
         bak_vagg["vagg_typ"] = "bak"
         bak_vagg["vagg_position"] = "bak"
-        bak_vagg["start_x"] = teoretisk_bredd  # <-- ÄNDRAD
-        bak_vagg["langd_x"] = -teoretisk_bredd  # <-- ÄNDRAD
+        bak_vagg["start_x"] = teoretisk_bredd
+        bak_vagg["langd_x"] = -teoretisk_bredd
         bak_vagg["vagg_bredd"] = 0.0
         bak_vagg["vagg_hojd"] = 0.0
         bak_vagg["spegelvänd"] = False
@@ -257,7 +287,7 @@ class MESH_OT_bt_skapa_hus(bpy.types.Operator):
         vanster_gavel["vagg_typ"] = "gavel"
         vanster_gavel["vagg_position"] = "vanster"
         vanster_gavel["start_y"] = 0.0
-        vanster_gavel["langd_y"] = 0.0  # <-- ÄNDRAD (0 = hela vägen)
+        vanster_gavel["langd_y"] = 0.0
         vanster_gavel["vagg_bredd"] = 0.0
         vanster_gavel["vagg_hojd"] = 0.0
         vanster_gavel["spegelvänd"] = False
@@ -279,7 +309,7 @@ class MESH_OT_bt_skapa_hus(bpy.types.Operator):
         hoger_gavel["vagg_typ"] = "gavel"
         hoger_gavel["vagg_position"] = "hoger"
         hoger_gavel["start_y"] = 0.0
-        hoger_gavel["langd_y"] = 0.0  # <-- ÄNDRAD (0 = hela vägen)
+        hoger_gavel["langd_y"] = 0.0
         hoger_gavel["vagg_bredd"] = 0.0
         hoger_gavel["vagg_hojd"] = 0.0
         hoger_gavel["spegelvänd"] = False
@@ -288,15 +318,22 @@ class MESH_OT_bt_skapa_hus(bpy.types.Operator):
 
         
         # 3. SKAPA TAK
+        # Spara den nya Empty i en temporär scene-property
+        context.scene["temp_empty"] = empty.name
+        
         bpy.ops.mesh.bt_skapa_tak()
         
-        # Hitta taket (takdelarna)
+        # Rensa temporär property
+        del context.scene["temp_empty"]
+        
+        # Hitta taket (takdelarna) för vidare användning
         tak_obj = None
         for obj in context.scene.objects:
-            if obj.name.startswith("Tak_"):
+            if obj.name.startswith("Tak_") and obj.parent == empty:
                 tak_obj = obj
                 break
-        
+
+                
         # 4. SKAPA MALLAR
         if tak_obj:
             # Skapa collection för mallar
@@ -354,6 +391,7 @@ class MESH_OT_bt_skapa_hus(bpy.types.Operator):
                 exterior_guide.display_type = 'WIRE'
                 exterior_guide.hide_render = True
                 exterior_guide.name = "Exterior_Guide"
+                exterior_guide.parent = empty
                 mall_collection.objects.link(exterior_guide)
             
             # 4c. Interior_Guide (väggars insida + takets insida)
@@ -373,18 +411,12 @@ class MESH_OT_bt_skapa_hus(bpy.types.Operator):
                 Interior_Guide.display_type = 'WIRE'
                 Interior_Guide.hide_render = True
                 Interior_Guide.name = "Interior_Guide"
+                Interior_Guide.parent = empty
                 mall_collection.objects.link(Interior_Guide)
         
-        # ----- AVMARKERA ALLT -----
-        bpy.ops.object.select_all(action='DESELECT')
-        context.view_layer.objects.active = None
         
-        self.report({'INFO'}, f"Skapade hus: L={fasad_l:.1f}, B={fasad_b:.1f}, H={vagg_hojd:.1f}, Nock={nock_utsida:.2f}")
-        return {'FINISHED'}
-        
-        # ----- AVMARKERA ALLT -----
-        bpy.ops.object.select_all(action='DESELECT')
-        context.view_layer.objects.active = None
-        
-        self.report({'INFO'}, f"Skapade hus: L={fasad_l:.1f}, B={fasad_b:.1f}, H={vagg_hojd:.1f}, Nock={nock_utsida:.2f}")
-        return {'FINISHED'}
+    # ----- AVMARKERA ALLT OCH MARKERA EMPTY -----
+            bpy.ops.object.select_all(action='DESELECT')
+            empty.select_set(True)
+            context.view_layer.objects.active = empty
+            return {'FINISHED'}

@@ -80,9 +80,23 @@ class MESH_OT_bt_skapa_tak(bpy.types.Operator):
             mesh.update()
             
             obj.location = (0, 0, 0)
-            empty = bpy.data.objects.get("Referenspunkt")
-            if empty:
-                obj.parent = empty
+        
+        # ----- SÄTT PARENT TILL EMPTY (från temp property) -----
+        empty = None
+        temp_empty_name = context.scene.get("temp_empty")
+        if temp_empty_name:
+            for obj in context.scene.objects:
+                if obj.name == temp_empty_name:
+                    empty = obj
+                    break
+        
+        if empty:
+            for obj in context.scene.objects:
+                if obj.name.startswith("Tak_") and obj.parent is None:
+                    global_matrix = obj.matrix_world.copy()
+                    obj.parent = empty
+                    obj.matrix_parent_inverse = empty.matrix_world.inverted()
+                    obj.location = (0, 0, 0)
         
         # Välj alla takdelar
         bpy.ops.object.select_all(action='DESELECT')

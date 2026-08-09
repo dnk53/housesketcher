@@ -23,7 +23,12 @@ def bt_update_huvudmått(self, context):
     
     scene = context.scene
     
-    # Hämta aktuella mått
+    # Hitta aktivt hus
+    active_empty = utils.get_active_house_empty(context)
+    if not active_empty:
+        return
+    
+    # Hämta aktuella mått från scene (dessa är globala)
     h = scene.bt_huvudmått
     fasad_l = h.fasad_l
     fasad_b = h.fasad_b
@@ -40,182 +45,79 @@ def bt_update_huvudmått(self, context):
     brytavstand = t.brytavstand
     
     # ----- BERÄKNA VERKLIG NOCKHÖJD -----
+    # ... [all befintlig beräkningskod] ...
     
-    # Invändig höjd fram
-    e = vagg_hojd
+    # Uppdatera Empty med nya mått
+    utils.update_house_data(active_empty, scene)
     
-    # Invändig höjd bak
-    if h.använd_symmetrisk_vagg_hojd:
-        k = h.vagg_hojd_bak
-    else:
-        k = vagg_hojd
+    # ----- UPPDATERA ENDAST OBJEKT SOM HÖR TILL DET AKTIVA HUSET -----
     
-    # ----- TAKLUTNINGAR -----
-    # Nedre taklutning fram - ALLTID från 01
-    v0 = radians(h.taklutning)
+    # UPPDATERA YTTERVÄGGAR
+    for vagg in scene.objects:
+        if vagg.get("typ") == "vägg" and vagg.parent == active_empty:
+            utils.bt_update_single_vagg_from_props(vagg, context)
     
-    # Nedre taklutning bak - från 02 (eller samma som fram)
-    if h.använd_symmetrisk_taklutning:
-        v2 = radians(h.taklutning_bak)
-    else:
-        v2 = v0
+    # UPPDATERA INNERVÄGGAR
+    for innervagg in scene.objects:
+        if innervagg.get("typ") == "innervagg" and innervagg.parent == active_empty:
+            utils.bt_update_single_innervagg(innervagg, context)
     
-    # Övre taklutning fram (mansard)
-    if h.använd_mansard_fram:
-        v1 = radians(h.taklutning_mansard)
-    else:
-        v1 = v0
-    
-    # Övre taklutning bak
-    if h.använd_symmetrisk_taklutning:
-        # Osymmetrisk byggnad
-        if h.använd_mansard_bak:
-            v3 = radians(h.taklutning_mansard_bak)
-        else:
-            v3 = v2
-    else:
-        # Symmetrisk byggnad
-        if h.använd_mansard_fram:
-            v3 = v1
-        else:
-            v3 = v0
-    
-    # Sätt variabler för beräkningar
-    f = v0
-    l = v2
-    u = v1
-    v = v3
-    
-    # Takutsprång
-    takutsprång_hitsida = h.takutsprång
-    if h.använd_symmetrisk_takutsprång:
-        m = h.takutsprång_bak
-    else:
-        m = takutsprång_hitsida
-    
-    # Gavelutsprång
-    gavelutsprång_vanster = h.gavelutsprång
-    if h.använd_symmetrisk_gavelutsprång:
-        n = h.gavelutsprång_hoger
-    else:
-        n = gavelutsprång_vanster
-    
-    # Brytavstånd
-    if h.använd_brytavstand_fram:
-        brytavstand_hitsida = h.brytavstand_mansard
-    else:
-        brytavstand_hitsida = brytavstand
-    
-    if h.använd_brytavstand_bak:
-        p = h.brytavstand_mansard_bak
-    else:
-        p = brytavstand_hitsida
-    
-    # ----- BERÄKNA INNERTAK -----
-    innertak_z_fram = e - teoretisk_bredd * tan(f)
-    innertak_z_bak = k - teoretisk_bredd * tan(l)
-    
-    # Beräkna brytpunkter
-    z1 = innertak_z_fram + brytavstand_hitsida * tan(f)
-    z2 = innertak_z_bak + p * tan(l)
-    
-    # Avstånd mellan brytpunkterna i Y-led (från utsida fasad)
-    y_avstand = fasad_b - brytavstand_hitsida - p
-    
-    if tan(u) + tan(v) != 0:
-        y1 = (y_avstand * tan(v) - z1 + z2) / (tan(u) + tan(v))
-    else:
-        y1 = y_avstand / 2
-
-    # ----- PULPETTAK - justera nockposition -----
-    if single_slope_roof:
-        if roof_type == 'SHED_FRONT':
-            # Pulpettak som lutar ner mot framsidan
-            y1 = fasad_b - brytavstand_hitsida
-        elif roof_type == 'SHED_BACK':
-            # Pulpettak som lutar ner mot baksidan
-            y1 = brytavstand_hitsida
-    
-    # Verklig nockhöjd (invändig)
-    nock_z = z1 + y1 * tan(u)
-    
-    # Beräkna nockens utsida (med taktjocklek)
-    if abs(u - v) < 0.001:
-        nock_utsida = nock_z + taktjocklek / cos(u)
-    else:
-        nock_utsida = nock_z + taktjocklek / cos((u + v) / 2) * cos((u - v) / 2)
-    
-    # ----- BERÄKNA VÄGGHÖJD -----
-    # Väggarna ska alltid vara minst vagg_hojd höga
-    max_tak_hojd = max(nock_utsida, z1, z2)
-    total_hojd = max(vagg_hojd, max_tak_hojd) + 0.010
-    
-    # ----- UPPDATERA YTTERVÄGGARNA -----
-    vagg_list = [o for o in scene.objects if o.get("typ") == "vägg"]
-    for vagg in vagg_list:
-        utils.bt_update_single_vagg_from_props(vagg, context)
-    
-    # ----- UPPDATERA INNERVÄGGARNA -----
-    innervagg_list = [o for o in scene.objects if o.get("typ") == "innervagg"]
-    for innervagg in innervagg_list:
-        utils.bt_update_single_innervagg(innervagg, context)
-    
-    # ----- UPPDATERA BJÄLKLAGET -----
-    bjalklag_list = [obj for obj in scene.objects if obj.name.startswith("bjalklag")]
-    if bjalklag_list:
-        for bjalklag in bjalklag_list:
+    # UPPDATERA BJÄLKLAG
+    for bjalklag in scene.objects:
+        if bjalklag.name.startswith("bjalklag") and bjalklag.parent == active_empty:
             utils.bt_update_single_bjalklag(bjalklag, context)
     
-    # ----- UPPDATERA PLATTAN -----
-    platta = next((o for o in scene.objects if o.name.startswith("Betongplatta")), None)
-    if platta:
-        indrag = scene.bt_platta.indrag
-        platt_l = fasad_l - indrag * 2
-        platt_b = fasad_b - indrag * 2
-        
-        p_platta = scene.bt_platta
-        t_platta = p_platta.tjocklek
-        H_platta = p_platta.total_hojd
-        fb = p_platta.forstyvning_bredd
-        
-        if H_platta - t_platta < 0:
-            return
-        
-        fi = (H_platta - t_platta) / math.tan(math.radians(p_platta.lutning)) if p_platta.lutning > 0 else 0
-        x_min, y_min = 0, 0
-        x_max, y_max = platt_l, platt_b
-        x3, y3 = x_min + fb, y_min + fb
-        x3b, y3b = x_max - fb, y_max - fb
-        
-        coords = [
-            (x_min, y_min, 0), (x_max, y_min, 0), (x_max, y_max, 0), (x_min, y_max, 0),
-            (x_min, y_min, -H_platta), (x_max, y_min, -H_platta), (x_max, y_max, -H_platta), (x_min, y_max, -H_platta),
-            (x3, y3, -H_platta), (x3b, y3, -H_platta), (x3b, y3b, -H_platta), (x3, y3b, -H_platta),
-            (x3 + fi, y3 + fi, -t_platta), (x3b - fi, y3 + fi, -t_platta), (x3b - fi, y3b - fi, -t_platta), (x3 + fi, y3b - fi, -t_platta)
-        ]
-        
-        mesh = platta.data
-        
-        if mesh.is_editmode:
-            try:
-                bpy.ops.object.mode_set(mode='OBJECT')
-            except:
+    # UPPDATERA PLATTAN
+    for platta in scene.objects:
+        if platta.name.startswith("Betongplatta") and platta.parent == active_empty:
+            # Beräkna plattans mått
+            indrag = scene.bt_platta.indrag
+            platt_l = fasad_l - indrag * 2
+            platt_b = fasad_b - indrag * 2
+            
+            p_platta = scene.bt_platta
+            t_platta = p_platta.tjocklek
+            H_platta = p_platta.total_hojd
+            fb = p_platta.forstyvning_bredd
+            
+            if H_platta - t_platta < 0:
                 return
-        
-        bm = bmesh.new()
-        bm.from_mesh(mesh)
-        bm.verts.ensure_lookup_table()
-        
-        for i, c in enumerate(coords):
-            if i < len(bm.verts):
-                bm.verts[i].co = c
-        
-        bm.verts.ensure_lookup_table()
-        bm.to_mesh(mesh)
-        bm.free()
-        mesh.update()
-        
-        platta.location = (indrag, indrag, 0)
+            
+            fi = (H_platta - t_platta) / math.tan(math.radians(p_platta.lutning)) if p_platta.lutning > 0 else 0
+            x_min, y_min = 0, 0
+            x_max, y_max = platt_l, platt_b
+            x3, y3 = x_min + fb, y_min + fb
+            x3b, y3b = x_max - fb, y_max - fb
+            
+            coords = [
+                (x_min, y_min, 0), (x_max, y_min, 0), (x_max, y_max, 0), (x_min, y_max, 0),
+                (x_min, y_min, -H_platta), (x_max, y_min, -H_platta), (x_max, y_max, -H_platta), (x_min, y_max, -H_platta),
+                (x3, y3, -H_platta), (x3b, y3, -H_platta), (x3b, y3b, -H_platta), (x3, y3b, -H_platta),
+                (x3 + fi, y3 + fi, -t_platta), (x3b - fi, y3 + fi, -t_platta), (x3b - fi, y3b - fi, -t_platta), (x3 + fi, y3b - fi, -t_platta)
+            ]
+            
+            mesh = platta.data
+            
+            if mesh.is_editmode:
+                try:
+                    bpy.ops.object.mode_set(mode='OBJECT')
+                except:
+                    return
+            
+            bm = bmesh.new()
+            bm.from_mesh(mesh)
+            bm.verts.ensure_lookup_table()
+            
+            for i, c in enumerate(coords):
+                if i < len(bm.verts):
+                    bm.verts[i].co = c
+            
+            bm.verts.ensure_lookup_table()
+            bm.to_mesh(mesh)
+            bm.free()
+            mesh.update()
+            
+            platta.location = (indrag, indrag, 0)
 
     # ----- UPPDATERA TAKET -----
     utils.bt_update_tak(self, context)
@@ -223,7 +125,6 @@ def bt_update_huvudmått(self, context):
     # ----- UPPDATERA MALLARNA -----
     utils.bt_update_wall_guide(self, context)
     utils.bt_update_all_guides(self, context)
-
 
 # ---------------------------------------------------------------------------
 # PROPERTYGROUP

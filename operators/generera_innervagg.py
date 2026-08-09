@@ -165,11 +165,11 @@ class MESH_OT_bt_skapa_innervagg(bpy.types.Operator):
         
         # Skapa bmesh
         bm = bmesh.new()
-        vert_indices = []  # <-- SPARA VERTEX-INDEX
+        vert_indices = []
         
         for c in coords:
             v = bm.verts.new(c)
-            vert_indices.append(v.index)  # <-- SPARA INDEX
+            vert_indices.append(v.index)
         
         bm.verts.ensure_lookup_table()
         
@@ -187,6 +187,12 @@ class MESH_OT_bt_skapa_innervagg(bpy.types.Operator):
         bm.free()
         mesh.update()
         
+        # ----- SPARA KOPPLING TILL BJÄLKLAG -----
+        if selected_slab:
+            obj["slab_parent"] = selected_slab.name
+        else:
+            obj["slab_parent"] = None
+        
         # Spara custom properties
         obj["typ"] = "innervagg"
         obj["tjocklek"] = p.tjocklek
@@ -197,10 +203,10 @@ class MESH_OT_bt_skapa_innervagg(bpy.types.Operator):
         obj["rotation"] = p.rotation
         obj["guide_type"] = p.guide_type
         obj["base_z"] = base_z
-        obj["innervagg_vertex_indices"] = vert_indices  # <-- SPARA VERTEX-INDEX
+        obj["innervagg_vertex_indices"] = vert_indices
         
-        # Parent till Referenspunkt
-        empty = bpy.data.objects.get("Referenspunkt")
+        # Parent till rätt Empty
+        empty = utils.get_active_house_empty(context)
         if empty:
             obj.parent = empty
         
