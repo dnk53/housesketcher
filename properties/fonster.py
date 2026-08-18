@@ -24,23 +24,36 @@ def bt_update_fonster_placering(self, context):
     if not selected_fonster:
         return
     
-    # Uppdatera alla markerade fönster
+    p = scene.bt_fonster
+    
     for fonster in selected_fonster:
-        fonster["placering"] = self.placering
+        fonster["placering"] = p.placering
         
+        # Uppdatera position direkt
         parent_obj = fonster.parent
-        if parent_obj and parent_obj.get("typ") == "vägg":
-            wall_length = parent_obj.get("vagg_langd", 5.0)
+        if parent_obj:
+            is_interior = fonster.get("is_interior", False)
             
-            x_pos = self.placering
-            if x_pos == 0:
-                x_pos = wall_length / 2.0
-            elif x_pos < 0:
-                x_pos = wall_length + x_pos
-            
-            fonster.location.x = x_pos
-
-
+            if is_interior:
+                wall_length = parent_obj.get("langd", 5.0)
+                if wall_length == 0:
+                    wall_length = utils.calculate_innervagg_length(parent_obj, context)
+                half_thickness = parent_obj.get("tjocklek", 0.120) / 2
+                x_pos = p.placering
+                if x_pos == 0:
+                    x_pos = wall_length / 2.0
+                elif x_pos < 0:
+                    x_pos = wall_length + x_pos
+                fonster.location = (x_pos, -half_thickness, fonster.location.z)
+            else:
+                wall_length = parent_obj.get("vagg_langd", 5.0)
+                x_pos = p.placering
+                if x_pos == 0:
+                    x_pos = wall_length / 2.0
+                elif x_pos < 0:
+                    x_pos = wall_length + x_pos
+                fonster.location = (x_pos, 0.0, fonster.location.z)
+                
 def bt_update_fonster(self, context):
     """Uppdaterar markerade fönster när användaren ändrar parametrar"""
     global _updating_from_ui
@@ -165,7 +178,8 @@ class BT_FonsterProperties(bpy.types.PropertyGroup):
     
     indragning: FloatProperty(
         name="Indragning från utsida",
-        default=0.05,
+        description="Hur långt in fönstret sitter från väggens utsida",
+        default=0.01,  # <-- ÄNDRA FRÅN 0.05 TILL 0.01
         min=0.0,
         step=1,
         update=bt_update_fonster

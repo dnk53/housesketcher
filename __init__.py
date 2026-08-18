@@ -94,7 +94,6 @@ def register():
     bpy.types.Scene.bt_show_bjalklag = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_fonster = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_dorr = bpy.props.BoolProperty(default=False)
-    bpy.types.Scene.bt_show_innervagg = bpy.props.BoolProperty(default=False)  # <-- LÄGG TILL
     
     # Synkroniseringshandlare
     bpy.app.handlers.depsgraph_update_post.append(utils.bt_master_synk_handler)

@@ -4,9 +4,11 @@
 
 import bpy
 import bmesh
-from mathutils import Matrix
+import math
+from mathutils import Matrix, Vector
 
 from .. import utils
+
 
 class MESH_OT_bt_skapa_fonster(bpy.types.Operator):
     bl_idname = "mesh.bt_skapa_fonster"
@@ -20,12 +22,12 @@ class MESH_OT_bt_skapa_fonster(bpy.types.Operator):
         brostning = p.brostning
         w_halv, x_inner, z_inner, y_glas = W / 2.0, (W / 2.0) - kt, H - kt, kd / 2.0
         
-        # Hitta ALLA markerade väggar
-        selected_walls = [obj for obj in context.selected_objects if obj.get("typ") == "vägg"]
+        # Hitta ALLA markerade väggar (inklusive innerväggar)
+        selected_walls = [obj for obj in context.selected_objects 
+                          if obj.get("typ") in ["vägg", "innervagg"]]
         
-        # Om inga väggar är markerade, gör inget
         if not selected_walls:
-            self.report({'WARNING'}, "Markera minst en vägg först!")
+            self.report({'WARNING'}, "Markera minst en vägg eller innervägg först!")
             return {'CANCELLED'}
         
         # Skapa collections om de inte finns
@@ -44,21 +46,29 @@ class MESH_OT_bt_skapa_fonster(bpy.types.Operator):
         last_fonster = None
         
         for parent_obj in selected_walls:
-            wall_bredd = parent_obj.get("vagg_bredd", 0.15)
-            wall_length = parent_obj.get("vagg_langd", 5.0)
-            cutter_depth = wall_bredd + 0.2
+            # Hämta väggens egenskaper (beroende på typ)
+            if parent_obj.get("typ") == "innervagg":
+                wall_length = parent_obj.get("langd", 5.0)
+                # Om längden är 0, beräkna den noggrant
+                if wall_length == 0:
+                    wall_length = utils.calculate_innervagg_length(parent_obj, context)
+                wall_bredd = parent_obj.get("tjocklek", 0.120)
+                is_interior = True
+                cutter_depth = wall_bredd + 0.5
+            else:
+                wall_length = parent_obj.get("vagg_langd", 5.0)
+                wall_bredd = parent_obj.get("vagg_bredd", 0.15)
+                is_interior = False
+                cutter_depth = wall_bredd + 0.5
             
             # Hämta position från FloatProperty
             x_pos = p.placering
 
             # Beräkna position baserat på värde
             if x_pos == 0:
-                # Centrera på väggen
                 x_pos = wall_length / 2.0
             elif x_pos < 0:
-                # Negativt värde = avstånd från höger kant
                 x_pos = wall_length + x_pos
-            # Positivt värde = avstånd från vänster kant (används direkt)
             
             # Skapa ett fönster på denna vägg
             idx = total_fonster
@@ -89,13 +99,17 @@ class MESH_OT_bt_skapa_fonster(bpy.types.Operator):
             obj["indragning"] = indragning
             obj["brostning"] = brostning
             obj["placering"] = p.placering
+            obj["is_interior"] = is_interior
             
             bm = bmesh.new()
             for c in coords:
                 bm.verts.new(c)
             bm.verts.ensure_lookup_table()
             for f in faces:
-                bm.faces.new([bm.verts[i] for i in f])
+                try:
+                    bm.faces.new([bm.verts[i] for i in f])
+                except:
+                    pass
             
             # Material
             mk = utils.get_material_fonsterkarm()
@@ -128,7 +142,10 @@ class MESH_OT_bt_skapa_fonster(bpy.types.Operator):
                 bm_c.verts.new(c)
             bm_c.verts.ensure_lookup_table()
             for f in cf:
-                bm_c.faces.new([bm_c.verts[i] for i in f])
+                try:
+                    bm_c.faces.new([bm_c.verts[i] for i in f])
+                except:
+                    pass
             bm_c.to_mesh(m_cut)
             bm_c.free()
             m_cut.update()
@@ -137,11 +154,21 @@ class MESH_OT_bt_skapa_fonster(bpy.types.Operator):
             o_cut.visible_camera = False
             o_cut.visible_shadow = False
             
-            # Placera fönstret
-            mat_loc = Matrix.Translation((x_pos, 0.0, brostning))
-            obj.parent = parent_obj
-            obj.matrix_local = mat_loc
-            o_cut.parent = obj
+            # ----- PLACERA FÖNSTRET -----
+            if is_interior:
+                # Innervägg: referenspunkt är i centrum, förskjut med halva tjockleken
+                half_thickness = wall_bredd / 2
+                obj.parent = parent_obj
+                obj.location = (x_pos, -half_thickness, brostning)
+                o_cut.parent = obj
+                o_cut.location = (0, 0, 0)
+            else:
+                # Yttervägg: använd befintlig logik
+                mat_loc = Matrix.Translation((x_pos, 0.0, brostning))
+                obj.parent = parent_obj
+                obj.matrix_local = mat_loc
+                o_cut.parent = obj
+                o_cut.location = (0, 0, 0)
             
             # Lägg till Boolean-modifierare på väggen
             old_mod = parent_obj.modifiers.get("Hål_Collection")
@@ -156,9 +183,9 @@ class MESH_OT_bt_skapa_fonster(bpy.types.Operator):
             bm_mod.solver = 'FLOAT'
             
             total_fonster += 1
-            last_fonster = obj  # Spara det sista fönstret som skapades
+            last_fonster = obj
         
-        # ----- MARKERA DET SISTA FÖNSTRET (precis som dörr) -----
+        # ----- MARKERA DET SISTA FÖNSTRET -----
         bpy.ops.object.select_all(action='DESELECT')
         if last_fonster:
             last_fonster.select_set(True)

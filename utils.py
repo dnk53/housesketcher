@@ -23,6 +23,14 @@ def reset_update_lock():
     _updating = False
     return None
 
+def rgb(r, g, b, a):
+    # omvandlar från sRGB till linear RGB (Blender internt)
+    def linear(c):
+        if c <= 0.04045:
+            return c / 12.92
+        return ((c + 0.055) / 1.055) ** 2.4
+    return(linear(r), linear(g), linear(b), a)
+        
 # ---------------------------------------------------------------------------
 # 1. HÄMTA HUVUDMÅTT
 # ---------------------------------------------------------------------------
@@ -1687,17 +1695,31 @@ def bt_update_bjalklag(self, context):
 # 11. REALTIDSUPPDATERING - FÖNSTER
 # ---------------------------------------------------------------------------
 def bt_update_single_fonster(fonster_obj, values):
+    """Uppdaterar ett enskilt fönsters geometri och position"""
+    
     W = values.get("bredd", 1.2)
     H = values.get("hojd", 1.4)
     kt = values.get("karmtjocklek", 0.05)
     kd = values.get("karmdjup", 0.10)
     indragning = values.get("indragning", 0.05)
     brostning = values.get("brostning", 0.9)
+    placering = values.get("placering", 0.0)
     
     w_halv, x_inner, z_inner, y_glas = W / 2.0, (W / 2.0) - kt, H - kt, kd / 2.0
     
-    fonster_obj.location.z = brostning
+    # Uppdatera fönstrets custom properties
+    fonster_obj["fonster_bredd"] = W
+    fonster_obj["fonster_hojd"] = H
+    fonster_obj["karmtjocklek"] = kt
+    fonster_obj["karmdjup"] = kd
+    fonster_obj["indragning"] = indragning
+    fonster_obj["brostning"] = brostning
+    fonster_obj["placering"] = placering
     
+    # Hämta värdet för is_interior
+    is_interior = fonster_obj.get("is_interior", False)
+    
+    # Uppdatera geometri
     coords = [
         (-w_halv, indragning, 0), (w_halv, indragning, 0), (w_halv, indragning, H), (-w_halv, indragning, H),
         (-x_inner, indragning, kt), (x_inner, indragning, kt), (x_inner, indragning, z_inner), (-x_inner, indragning, z_inner),
@@ -1727,45 +1749,71 @@ def bt_update_single_fonster(fonster_obj, values):
     bm.free()
     mesh.update()
     
-    # Uppdatera cuttern om den finns
-    cutter_obj = None
+    # ----- UPPDATERA POSITION -----
+    parent_obj = fonster_obj.parent
+    if parent_obj:
+        if is_interior:
+            # Innervägg: beräkna position längs väggen
+            wall_length = parent_obj.get("langd", 5.0)
+            if wall_length == 0:
+                wall_length = calculate_innervagg_length(parent_obj, bpy.context)
+            half_thickness = parent_obj.get("tjocklek", 0.120) / 2
+            
+            x_pos = placering
+            if x_pos == 0:
+                x_pos = wall_length / 2.0
+            elif x_pos < 0:
+                x_pos = wall_length + x_pos
+            
+            fonster_obj.location = (x_pos, -half_thickness, brostning)
+        else:
+            # Yttervägg: använd befintlig logik
+            wall_length = parent_obj.get("vagg_langd", 5.0)
+            x_pos = placering
+            if x_pos == 0:
+                x_pos = wall_length / 2.0
+            elif x_pos < 0:
+                x_pos = wall_length + x_pos
+            fonster_obj.location = (x_pos, 0.0, brostning)
+    
+    # ----- UPPDATERA CUTTER -----
     for child in fonster_obj.children:
         if child.name.startswith("Hål_Fönster"):
-            cutter_obj = child
-            break
-    
-    if cutter_obj:
-        parent_obj = fonster_obj.parent
-        wall_bredd = 0.15
-        if parent_obj and parent_obj.get("typ") == "vägg":
-            wall_bredd = parent_obj.get("vagg_bredd", 0.15)
-        cutter_depth = wall_bredd + 0.2
-        
-        cc = [
-            (-w_halv, indragning - 0.1, 0), (w_halv, indragning - 0.1, 0), (w_halv, indragning - 0.1, H), (-w_halv, indragning - 0.1, H),
-            (-w_halv, cutter_depth, 0), (w_halv, cutter_depth, 0), (w_halv, cutter_depth, H), (-w_halv, cutter_depth, H)
-        ]
-        
-        m_cut = cutter_obj.data
-        
-        if m_cut.is_editmode:
-            try:
-                bpy.ops.object.mode_set(mode='OBJECT')
-            except:
-                return
-        
-        bm_c = bmesh.new()
-        bm_c.from_mesh(m_cut)
-        bm_c.verts.ensure_lookup_table()
-        
-        for i, c in enumerate(cc):
-            if i < len(bm_c.verts):
-                bm_c.verts[i].co = c
-        
-        bm_c.verts.ensure_lookup_table()
-        bm_c.to_mesh(m_cut)
-        bm_c.free()
-        m_cut.update()
+            # Uppdatera cutter-geometri
+            parent_obj = fonster_obj.parent
+            if parent_obj:
+                if is_interior:
+                    wall_bredd = parent_obj.get("tjocklek", 0.120)
+                else:
+                    wall_bredd = parent_obj.get("vagg_bredd", 0.15)
+                cutter_depth = wall_bredd + 0.5
+                
+                cc = [
+                    (-w_halv, indragning - 0.1, -0.0001), (w_halv, indragning - 0.1, -0.0001), 
+                    (w_halv, indragning - 0.1, H), (-w_halv, indragning - 0.1, H),
+                    (-w_halv, cutter_depth, -0.0001), (w_halv, cutter_depth, -0.0001), 
+                    (w_halv, cutter_depth, H), (-w_halv, cutter_depth, H)
+                ]
+                
+                m_cut = child.data
+                if m_cut.is_editmode:
+                    try:
+                        bpy.ops.object.mode_set(mode='OBJECT')
+                    except:
+                        return
+                
+                bm_c = bmesh.new()
+                bm_c.from_mesh(m_cut)
+                bm_c.verts.ensure_lookup_table()
+                
+                for i, c in enumerate(cc):
+                    if i < len(bm_c.verts):
+                        bm_c.verts[i].co = c
+                
+                bm_c.verts.ensure_lookup_table()
+                bm_c.to_mesh(m_cut)
+                bm_c.free()
+                m_cut.update()
 
 def bt_update_fonster(self, context):
     global _updating
@@ -1838,7 +1886,7 @@ def bt_update_dorr(self, context):
 
 
 def bt_update_single_dorr(dorr_obj, values):
-    """Uppdaterar en enskild dörrs geometri"""
+    """Uppdaterar en enskild dörrs geometri och position"""
     
     W = values.get("bredd", 0.9)
     H = values.get("hojd", 2.1)
@@ -1846,6 +1894,9 @@ def bt_update_single_dorr(dorr_obj, values):
     kd = values.get("karmdjup", 0.10)
     indragning = values.get("indragning", 0.05)
     tröskel = values.get("tröskelhöjd", 0.05)
+    placering = values.get("placering", 0.0)
+    niva = values.get("niva", 0.0)
+    hangning = values.get("hangning", "RIGHT")
     
     w_halv = W / 2.0
     x_inner = w_halv - kt
@@ -1853,6 +1904,9 @@ def bt_update_single_dorr(dorr_obj, values):
     mellanrum = 0.003
     blad_w = x_inner - mellanrum
     blad_h = z_inner - tröskel - mellanrum
+    
+    # Hämta värdet för is_interior
+    is_interior = dorr_obj.get("is_interior", False)
     
     # Uppdatera dörrbladets geometri
     blad_coords = [
@@ -1898,8 +1952,38 @@ def bt_update_single_dorr(dorr_obj, values):
     dorr_obj["karmdjup"] = kd
     dorr_obj["indragning"] = indragning
     dorr_obj["tröskelhöjd"] = tröskel
+    dorr_obj["placering"] = placering
+    dorr_obj["niva"] = niva
+    dorr_obj["hangning"] = hangning
     
-    # Uppdatera karm
+    # ----- UPPDATERA POSITION -----
+    parent_obj = dorr_obj.parent
+    if parent_obj:
+        if is_interior:
+            # Innervägg: beräkna position längs väggen
+            wall_length = parent_obj.get("langd", 5.0)
+            if wall_length == 0:
+                wall_length = calculate_innervagg_length(parent_obj, bpy.context)
+            half_thickness = parent_obj.get("tjocklek", 0.120) / 2
+            
+            x_pos = placering
+            if x_pos == 0:
+                x_pos = wall_length / 2.0
+            elif x_pos < 0:
+                x_pos = wall_length + x_pos
+            
+            dorr_obj.location = (x_pos, -half_thickness, niva)
+        else:
+            # Yttervägg: använd befintlig logik
+            wall_length = parent_obj.get("vagg_langd", 5.0)
+            x_pos = placering
+            if x_pos == 0:
+                x_pos = wall_length / 2.0
+            elif x_pos < 0:
+                x_pos = wall_length + x_pos
+            dorr_obj.location = (x_pos, 0.0, niva)
+    
+    # ----- UPPDATERA KARM -----
     for child in dorr_obj.children:
         if child.name.startswith("Karm_"):
             karm_coords = [
@@ -1914,7 +1998,6 @@ def bt_update_single_dorr(dorr_obj, values):
             ]
             
             mesh_karm = child.data
-            
             if mesh_karm.is_editmode:
                 try:
                     bpy.ops.object.mode_set(mode='OBJECT')
@@ -1934,53 +2017,52 @@ def bt_update_single_dorr(dorr_obj, values):
             bm_k.free()
             mesh_karm.update()
         
-        # Uppdatera handtag
+        # ----- UPPDATERA HANDTAG -----
         elif child.name.startswith("Handtag_Fram") or child.name.startswith("Handtag_Bak"):
-            hangning = dorr_obj.get("hangning", "RIGHT")
             if hangning == 'RIGHT':
                 handtag_x = -blad_w + 0.03
             else:
                 handtag_x = blad_w - 0.03
             child.location = (handtag_x, 0, 0)
         
-        # Uppdatera cutter
+        # ----- UPPDATERA CUTTER -----
         elif child.name.startswith("Hål_Dörr"):
-            cutter_start = indragning - 0.1
             parent_obj = dorr_obj.parent
-            wall_bredd = 0.15
-            if parent_obj and parent_obj.get("typ") == "vägg":
-                wall_bredd = parent_obj.get("vagg_bredd", 0.15)
-            cutter_depth = wall_bredd + 0.2
-            
-            cc = [
-                (-w_halv, cutter_start, -0.0001), (w_halv, cutter_start, -0.0001), 
-                (w_halv, cutter_start, H), (-w_halv, cutter_start, H),
-                (-w_halv, cutter_start + cutter_depth, -0.0001), 
-                (w_halv, cutter_start + cutter_depth, -0.0001),
-                (w_halv, cutter_start + cutter_depth, H), 
-                (-w_halv, cutter_start + cutter_depth, H)
-            ]
-            
-            mesh_cut = child.data
-            
-            if mesh_cut.is_editmode:
-                try:
-                    bpy.ops.object.mode_set(mode='OBJECT')
-                except:
-                    continue
-            
-            bm_c = bmesh.new()
-            bm_c.from_mesh(mesh_cut)
-            bm_c.verts.ensure_lookup_table()
-            
-            for i, c in enumerate(cc):
-                if i < len(bm_c.verts):
-                    bm_c.verts[i].co = c
-            
-            bm_c.verts.ensure_lookup_table()
-            bm_c.to_mesh(mesh_cut)
-            bm_c.free()
-            mesh_cut.update()
+            if parent_obj:
+                if is_interior:
+                    wall_bredd = parent_obj.get("tjocklek", 0.120)
+                else:
+                    wall_bredd = parent_obj.get("vagg_bredd", 0.15)
+                cutter_depth = wall_bredd + 0.5
+                
+                cc = [
+                    (-w_halv, indragning - 0.1, -0.0001), (w_halv, indragning - 0.1, -0.0001), 
+                    (w_halv, indragning - 0.1, H), (-w_halv, indragning - 0.1, H),
+                    (-w_halv, indragning + cutter_depth, -0.0001), 
+                    (w_halv, indragning + cutter_depth, -0.0001),
+                    (w_halv, indragning + cutter_depth, H), 
+                    (-w_halv, indragning + cutter_depth, H)
+                ]
+                
+                mesh_cut = child.data
+                if mesh_cut.is_editmode:
+                    try:
+                        bpy.ops.object.mode_set(mode='OBJECT')
+                    except:
+                        continue
+                
+                bm_c = bmesh.new()
+                bm_c.from_mesh(mesh_cut)
+                bm_c.verts.ensure_lookup_table()
+                
+                for i, c in enumerate(cc):
+                    if i < len(bm_c.verts):
+                        bm_c.verts[i].co = c
+                
+                bm_c.verts.ensure_lookup_table()
+                bm_c.to_mesh(mesh_cut)
+                bm_c.free()
+                mesh_cut.update()
 
 # ---------------------------------------------------------------------------
 # 13. BAKGRUNDSSYNKRONISERING
@@ -2472,106 +2554,32 @@ def bt_update_single_innervagg(innervagg_obj, context):
     else:
         total_hojd = hojd
     
-    # Beräkna startpunkt
+    # Beräkna startpunkt (om 0 = mitten)
     if start_x == 0:
         start_x = h.fasad_l / 2
     if start_y == 0:
         start_y = h.fasad_b / 2
     
-    # Beräkna längd
+    # Beräkna längd (om 0 = hela vägen)
+    if langd == 0:
+        langd = calculate_innervagg_length(innervagg_obj, context)  # <-- ANVÄND FUNKTIONEN
+    
     rotation_rad = math.radians(rotation)
     
-    if langd == 0:
-        # Beräkna avstånd till yttervägg i rotationsriktningen
-        # Använd byggnadens YTTERMÅTT (fasad_l och fasad_b)
-        fasad_l = h.fasad_l
-        fasad_b = h.fasad_b
-        
-        # Riktningsvektor
-        dx = math.cos(rotation_rad)
-        dy = math.sin(rotation_rad)
-        
-        # Beräkna avstånd till alla fyra ytterväggar
-        dists = []
-        
-        # Höger vägg (x = fasad_l)
-        if dx > 0:
-            dists.append((fasad_l - start_x) / dx)
-        
-        # Vänster vägg (x = 0)
-        if dx < 0:
-            dists.append(-start_x / dx)
-        
-        # Framvägg (y = 0)
-        if dy > 0:
-            dists.append((fasad_b - start_y) / dy)
-        
-        # Bakvägg (y = 0)
-        if dy < 0:
-            dists.append(-start_y / dy)
-        
-        # Ta det minsta positiva avståndet
-        if dists:
-            langd = min(d for d in dists if d > 0)
-        else:
-            langd = 5.0
-        
-        # Begränsa till rimlig längd
-        if langd <= 0 or langd > 1000:
-            langd = 5.0
-    
-    # Beräkna ändpunkt
-    end_x = start_x + langd * math.cos(rotation_rad)
-    end_y = start_y + langd * math.sin(rotation_rad)
-    
-    # Beräkna väggens centrum och riktning
-    center_x = (start_x + end_x) / 2
-    center_y = (start_y + end_y) / 2
-    dx = end_x - start_x
-    dy = end_y - start_y
-    wall_length = math.sqrt(dx*dx + dy*dy)
-    
-    if wall_length < 0.001:
-        return
-    
-    # Normalisera riktning
-    dx /= wall_length
-    dy /= wall_length
-    
-    # Vinkelrät riktning (för bredd)
-    px = -dy
-    py = dx
-    
-    # Hälften av bredd och längd
+    # ----- BYGG VÄGGEN LOKALT VID ORIGO -----
     half_width = tjocklek / 2
-    half_length = wall_length / 2
     
-    # Skapa koordinater för 8 hörn
     coords = [
-        (center_x + (-half_length * dx - half_width * px),
-         center_y + (-half_length * dy - half_width * py),
-         base_z),
-        (center_x + (half_length * dx - half_width * px),
-         center_y + (half_length * dy - half_width * py),
-         base_z),
-        (center_x + (half_length * dx + half_width * px),
-         center_y + (half_length * dy + half_width * py),
-         base_z),
-        (center_x + (-half_length * dx + half_width * px),
-         center_y + (-half_length * dy + half_width * py),
-         base_z),
-        (center_x + (-half_length * dx - half_width * px),
-         center_y + (-half_length * dy - half_width * py),
-         base_z + total_hojd),
-        (center_x + (half_length * dx - half_width * px),
-         center_y + (half_length * dy - half_width * py),
-         base_z + total_hojd),
-        (center_x + (half_length * dx + half_width * px),
-         center_y + (half_length * dy + half_width * py),
-         base_z + total_hojd),
-        (center_x + (-half_length * dx + half_width * px),
-         center_y + (-half_length * dy + half_width * py),
-         base_z + total_hojd),
+        # Botten (4 hörn)
+        (0, -half_width, 0),
+        (langd, -half_width, 0),
+        (langd, half_width, 0),
+        (0, half_width, 0),
+        # Topp (4 hörn)
+        (0, -half_width, total_hojd),
+        (langd, -half_width, total_hojd),
+        (langd, half_width, total_hojd),
+        (0, half_width, total_hojd),
     ]
     
     # Uppdatera mesh via vertex-flyttning
@@ -2599,6 +2607,10 @@ def bt_update_single_innervagg(innervagg_obj, context):
     bm.to_mesh(mesh)
     bm.free()
     mesh.update()
+    
+    # ----- SÄTT POSITION OCH ROTATION -----
+    innervagg_obj.location = (start_x, start_y, base_z)
+    innervagg_obj.rotation_euler = (0, 0, rotation_rad)
     
     # Uppdatera Boolean-modifierare
     guide_type = innervagg_obj.get("guide_type", "INTERIOR")
@@ -2643,7 +2655,61 @@ def _update_innervagg_boolean(innervagg_obj, scene, guide_type):
     bm_mod.object = guide_obj
     bm_mod.solver = 'EXACT'
 
-
+def calculate_innervagg_length(innervagg_obj, context):
+    """Beräknar innerväggens effektiva längd baserat på rotation och startpunkt"""
+    
+    scene = context.scene
+    h = scene.bt_huvudmått
+    
+    # Hämta byggnadens innermått (insida av ytterväggar)
+    fasad_l = h.fasad_l
+    fasad_b = h.fasad_b
+    teoretisk_bredd = h.teoretisk_vagg_bredd
+    inner_l = fasad_l - teoretisk_bredd * 2
+    inner_b = fasad_b - teoretisk_bredd * 2
+    
+    # Hämta väggens startpunkt (global position)
+    start_x = innervagg_obj.location.x
+    start_y = innervagg_obj.location.y
+    
+    # Hämta rotation
+    rotation = innervagg_obj.rotation_euler.z
+    
+    # Riktningsvektor
+    dx = math.cos(rotation)
+    dy = math.sin(rotation)
+    
+    # Beräkna avstånd till alla fyra väggar
+    dists = []
+    
+    # Höger vägg (x = inner_l)
+    if dx > 0.0001:
+        dists.append((inner_l - start_x) / dx)
+    
+    # Vänster vägg (x = 0)
+    if dx < -0.0001:
+        dists.append(-start_x / dx)
+    
+    # Bakvägg (y = inner_b)
+    if dy > 0.0001:
+        dists.append((inner_b - start_y) / dy)
+    
+    # Framvägg (y = 0)
+    if dy < -0.0001:
+        dists.append(-start_y / dy)
+    
+    # Ta det minsta positiva avståndet
+    if dists:
+        langd = min(d for d in dists if d > 0.001)
+    else:
+        langd = 5.0  # Fallback
+    
+    # Begränsa till rimlig längd
+    if langd <= 0 or langd > 1000:
+        langd = 5.0
+    
+    return langd    
+    
 # ---------------------------------------------------------------------------
 # 19. MATERIAL-FUNKTIONER
 # ---------------------------------------------------------------------------
@@ -2652,13 +2718,13 @@ def get_material_tegel():
     if not mat:
         mat = bpy.data.materials.new(name="Vägg_Utsida_Tegel")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.5, 0.3, 0.2, 1.0)
+        mat.diffuse_color = rgb(0.5, 0.3, 0.2, 1.0)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.5, 0.3, 0.2, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.5, 0.3, 0.2, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.7
         output = nodes.new('ShaderNodeOutputMaterial')
         output.location = (200, 0)
@@ -2670,13 +2736,13 @@ def get_material_vit():
     if not mat:
         mat = bpy.data.materials.new(name="Vägg_Insida_Vit")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.95, 0.95, 0.95, 1.0)
+        mat.diffuse_color = rgb(0.95, 0.95, 0.95, 1.0)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.95, 0.95, 0.95, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.95, 0.95, 0.95, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.8
         output = nodes.new('ShaderNodeOutputMaterial')
         output.location = (200, 0)
@@ -2688,13 +2754,13 @@ def get_material_betong():
     if not mat:
         mat = bpy.data.materials.new(name="Betong_Grå")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.7, 0.7, 0.7, 1.0)
+        mat.diffuse_color = rgb(0.7, 0.7, 0.7, 1.0)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.7, 0.7, 0.7, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.7, 0.7, 0.7, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.9
         output = nodes.new('ShaderNodeOutputMaterial')
         output.location = (200, 0)
@@ -2706,13 +2772,13 @@ def get_material_bjalklag():
     if not mat:
         mat = bpy.data.materials.new(name="Bjälklag_Betong")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.6, 0.6, 0.6, 1.0)
+        mat.diffuse_color = rgb(0.6, 0.6, 0.6, 1.0)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.6, 0.6, 0.6, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.6, 0.6, 0.6, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.9
         output = nodes.new('ShaderNodeOutputMaterial')
         output.location = (200, 0)
@@ -2724,21 +2790,31 @@ def get_material_tak():
     if not mat:
         mat = bpy.data.materials.new(name="Tak_Mörkgrå")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.3, 0.3, 0.3, 1.0)
+        mat.diffuse_color = rgb(0.15, 0.15, 0.15, 1.0)
+        print("hej")
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
-        rgb_node = nodes.new('ShaderNodeRGB')
-        rgb_node.outputs[0].default_value = (0.3, 0.3, 0.3, 1.0)
-        rgb_node.location = (-200, 0)
+        
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Roughness'].default_value = 0.7
-        bsdf.location = (0, 0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.10, 0.10, 0.10, 1.0)
+        bsdf.inputs['Roughness'].default_value = 0.8
         output = nodes.new('ShaderNodeOutputMaterial')
         output.location = (200, 0)
-        links.new(rgb_node.outputs['Color'], bsdf.inputs['Base Color'])
         links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
+        
+        # rgb_node = nodes.new('ShaderNodeRGB')
+        # rgb_node.outputs[0].default_value = rgb(0.10, 0.10, 0.10, 1.0)
+        # rgb_node.location = (-200, 0)
+        # bsdf = nodes.new('ShaderNodeBsdfPrincipled')
+        # bsdf.inputs['Base Color'].default_value = rgb(0.10, 0.10, 0.10, 1.0)
+        # bsdf.inputs['Roughness'].default_value = 0.7
+        # bsdf.location = (0, 0)
+        # output = nodes.new('ShaderNodeOutputMaterial')
+        # output.location = (200, 0)
+        # links.new(rgb_node.outputs['Color'], bsdf.inputs['Base Color'])
+        # links.new(bsdf.outputs['BSDF'], output.inputs['Surface'])
     return mat
 
 def get_material_innertak():
@@ -2746,13 +2822,14 @@ def get_material_innertak():
     if not mat:
         mat = bpy.data.materials.new(name="Innertak_Vit")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.95, 0.95, 0.95, 1.0)
+        mat.diffuse_color = rgb(0.95, 0.95, 0.95, 1.0)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
+
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.95, 0.95, 0.95, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.95, 0.95, 0.95, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.8
         output = nodes.new('ShaderNodeOutputMaterial')
         output.location = (200, 0)
@@ -2764,13 +2841,13 @@ def get_material_fonsterkarm():
     if not mat:
         mat = bpy.data.materials.new(name="Fönsterkarm_Vit")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.95, 0.95, 0.95, 1.0)
+        mat.diffuse_color = rgb(0.95, 0.95, 0.95, 1.0)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.95, 0.95, 0.95, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.95, 0.95, 0.95, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.4
         output = nodes.new('ShaderNodeOutputMaterial')
         output.location = (200, 0)
@@ -2782,14 +2859,14 @@ def get_material_glas():
     if not mat:
         mat = bpy.data.materials.new(name="Fönsterglas_Blå")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.6, 0.8, 1.0, 0.6)
+        mat.diffuse_color = rgb(0.6, 0.8, 1.0, 0.6)
         mat.blend_method = 'BLEND'
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.6, 0.8, 1.0, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.6, 0.8, 1.0, 1.0)
         bsdf.inputs['Alpha'].default_value = 0.5
         bsdf.inputs['Roughness'].default_value = 0.1
         bsdf.inputs['IOR'].default_value = 1.45
@@ -2803,13 +2880,13 @@ def get_material_dorrkarm():
     if not mat:
         mat = bpy.data.materials.new(name="Dörrkarm_Vit")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.9, 0.9, 0.9, 1.0)
+        mat.diffuse_color = rgb(0.9, 0.9, 0.9, 1.0)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.9, 0.9, 0.9, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.9, 0.9, 0.9, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.3
         output = nodes.new('ShaderNodeOutputMaterial')
         output.location = (200, 0)
@@ -2821,13 +2898,13 @@ def get_material_dorrblad():
     if not mat:
         mat = bpy.data.materials.new(name="Dörr_Grå")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.1, 0.1, 0.1, 1.0)
+        mat.diffuse_color = rgb(0.1, 0.1, 0.1, 1.0)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.1, 0.1, 0.1, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.1, 0.1, 0.1, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.6
         output = nodes.new('ShaderNodeOutputMaterial')
         output.location = (200, 0)
@@ -2839,13 +2916,13 @@ def get_material_handtag():
     if not mat:
         mat = bpy.data.materials.new(name="Handtag_Mässing")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.8, 0.6, 0.2, 1.0)
+        mat.diffuse_color = rgb(0.8, 0.6, 0.2, 1.0)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.8, 0.6, 0.2, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.8, 0.6, 0.2, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.3
         bsdf.inputs['Metallic'].default_value = 0.8
         output = nodes.new('ShaderNodeOutputMaterial')
@@ -2859,13 +2936,13 @@ def get_material_innervagg():
     if not mat:
         mat = bpy.data.materials.new(name="Innervagg_Vit")
         mat.use_fake_user = True
-        mat.diffuse_color = (0.95, 0.95, 0.95, 1.0)
+        mat.diffuse_color = rgb(0.95, 0.95, 0.95, 1.0)
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links
         nodes.clear()
         bsdf = nodes.new('ShaderNodeBsdfPrincipled')
-        bsdf.inputs['Base Color'].default_value = (0.95, 0.95, 0.95, 1.0)
+        bsdf.inputs['Base Color'].default_value = rgb(0.95, 0.95, 0.95, 1.0)
         bsdf.inputs['Roughness'].default_value = 0.8
         output = nodes.new('ShaderNodeOutputMaterial')
         output.location = (200, 0)

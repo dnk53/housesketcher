@@ -24,21 +24,35 @@ def bt_update_dorr_placering(self, context):
     if not selected_dorrar:
         return
     
+    p = scene.bt_dorr
+    
     for dorr in selected_dorrar:
-        dorr["placering"] = self.placering
+        dorr["placering"] = p.placering
         
+        # Uppdatera position direkt
         parent_obj = dorr.parent
-        if parent_obj and parent_obj.get("typ") == "vägg":
-            wall_length = parent_obj.get("vagg_langd", 5.0)
+        if parent_obj:
+            is_interior = dorr.get("is_interior", False)
             
-            x_pos = self.placering
-            if x_pos == 0:
-                x_pos = wall_length / 2.0
-            elif x_pos < 0:
-                x_pos = wall_length + x_pos
-            
-            dorr.location.x = x_pos
-
+            if is_interior:
+                wall_length = parent_obj.get("langd", 5.0)
+                if wall_length == 0:
+                    wall_length = utils.calculate_innervagg_length(parent_obj, context)
+                half_thickness = parent_obj.get("tjocklek", 0.120) / 2
+                x_pos = p.placering
+                if x_pos == 0:
+                    x_pos = wall_length / 2.0
+                elif x_pos < 0:
+                    x_pos = wall_length + x_pos
+                dorr.location = (x_pos, -half_thickness, dorr.location.z)
+            else:
+                wall_length = parent_obj.get("vagg_langd", 5.0)
+                x_pos = p.placering
+                if x_pos == 0:
+                    x_pos = wall_length / 2.0
+                elif x_pos < 0:
+                    x_pos = wall_length + x_pos
+                dorr.location = (x_pos, 0.0, dorr.location.z)
 
 # MODIFIERA DENNA FUNKTION - den ska uppdatera dörrens nivå
 def bt_update_dorr_niva(self, context):
@@ -207,7 +221,7 @@ class BT_DorrProperties(bpy.types.PropertyGroup):
     indragning: FloatProperty(
         name="Indragning från utsida",
         description="Hur långt in dörren sitter från väggens utsida",
-        default=0.05,
+        default=0.01,  # <-- ÄNDRA FRÅN 0.05 TILL 0.01
         min=0.0,
         step=1,
         update=bt_update_dorr

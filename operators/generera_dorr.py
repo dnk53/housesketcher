@@ -10,6 +10,7 @@ from mathutils import Matrix, Vector
 
 from .. import utils
 
+
 class MESH_OT_bt_skapa_dorr(bpy.types.Operator):
     bl_idname = "mesh.bt_skapa_dorr"
     bl_label = "Generera dörr"
@@ -21,12 +22,13 @@ class MESH_OT_bt_skapa_dorr(bpy.types.Operator):
         tröskel = p.tröskelhöjd
         indragning = p.indragning
         
-        # Hitta ALLA markerade väggar
-        selected_walls = [obj for obj in context.selected_objects if obj.get("typ") == "vägg"]
+        # Hitta ALLA markerade väggar (inklusive innerväggar)
+        selected_walls = [obj for obj in context.selected_objects 
+                          if obj.get("typ") in ["vägg", "innervagg"]]
         
-        # Om inga väggar är markerade, gör inget
         if not selected_walls:
-            return {'FINISHED'}
+            self.report({'WARNING'}, "Markera minst en vägg eller innervägg först!")
+            return {'CANCELLED'}
         
         # Skapa collections om de inte finns
         hal_collection = bpy.data.collections.get("Hål")
@@ -41,18 +43,32 @@ class MESH_OT_bt_skapa_dorr(bpy.types.Operator):
         
         # Loopa över alla markerade väggar
         total_dorrar = 0
+        last_dorr = None
+        
         for parent_obj in selected_walls:
-            wall_bredd = parent_obj.get("vagg_bredd", 0.15)
-            wall_length = parent_obj.get("vagg_langd", 5.0)
-            cutter_depth = wall_bredd + 0.2
+            # Hämta väggens egenskaper (beroende på typ)
+            if parent_obj.get("typ") == "innervagg":
+                wall_length = parent_obj.get("langd", 5.0)
+                # Om längden är 0, beräkna den noggrant
+                if wall_length == 0:
+                    wall_length = utils.calculate_innervagg_length(parent_obj, context)
+                wall_bredd = parent_obj.get("tjocklek", 0.120)
+                is_interior = True
+                cutter_depth = wall_bredd + 0.5
+            else:
+                wall_length = parent_obj.get("vagg_langd", 5.0)
+                wall_bredd = parent_obj.get("vagg_bredd", 0.15)
+                is_interior = False
+                cutter_depth = wall_bredd + 0.5
+            
             # Hämta position från property
             x_pos = p.placering
+            
             # Beräkna position baserat på värde
             if x_pos == 0:
                 x_pos = wall_length / 2.0
             elif x_pos < 0:
                 x_pos = wall_length + x_pos
-            # Positivt värde = avstånd från vänster kant (används direkt)
             
             idx = total_dorrar
             w_halv = W / 2.0
@@ -134,7 +150,8 @@ class MESH_OT_bt_skapa_dorr(bpy.types.Operator):
             blad_obj["indragning"] = indragning
             blad_obj["hangning"] = p.hangning
             blad_obj["placering"] = p.placering
-            blad_obj["niva"] = p.niva  # <-- LÄGG TILL DENNA RAD
+            blad_obj["niva"] = p.niva
+            blad_obj["is_interior"] = is_interior
             
             bm = bmesh.new()
             for c in blad_coords:
@@ -184,7 +201,7 @@ class MESH_OT_bt_skapa_dorr(bpy.types.Operator):
             hal_collection.objects.link(o_cut)
             
             cutter_start = indragning - 0.1
-            cutter_depth = wall_bredd + 0.2
+            cutter_depth = wall_bredd + 0.5  # <-- ÖKAT DJUP
             
             cc = [
                 (-w_halv, cutter_start, -0.0001), (w_halv, cutter_start, -0.0001), 
@@ -218,8 +235,15 @@ class MESH_OT_bt_skapa_dorr(bpy.types.Operator):
             o_cut.location = (0, 0, 0)
             
             # ---------- PLACERA DÖRREN ----------
-            blad_obj.parent = parent_obj
-            blad_obj.location = (x_pos, 0.0, p.niva)
+            if is_interior:
+                # Innervägg: referenspunkt är i centrum, förskjut med halva tjockleken
+                half_thickness = wall_bredd / 2
+                blad_obj.parent = parent_obj
+                blad_obj.location = (x_pos, -half_thickness, p.niva)
+            else:
+                # Yttervägg: använd befintlig logik
+                blad_obj.parent = parent_obj
+                blad_obj.location = (x_pos, 0.0, p.niva)
             
             # Lägg till Boolean-modifierare på väggen
             old_mod = parent_obj.modifiers.get("Hål_Collection")
@@ -234,6 +258,13 @@ class MESH_OT_bt_skapa_dorr(bpy.types.Operator):
             bm_mod.solver = 'FLOAT'
             
             total_dorrar += 1
+            last_dorr = blad_obj
+        
+        # ----- MARKERA DET SISTA DÖRRBLADET -----
+        bpy.ops.object.select_all(action='DESELECT')
+        if last_dorr:
+            last_dorr.select_set(True)
+            context.view_layer.objects.active = last_dorr
         
         self.report({'INFO'}, f"Skapade {total_dorrar} dörrar på {len(selected_walls)} vägg(ar)")
         return {'FINISHED'}

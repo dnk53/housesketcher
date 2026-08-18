@@ -19,6 +19,7 @@ class MESH_OT_bt_dolj_alla_menyer(bpy.types.Operator):
         scene.bt_show_osymmetrisk = False
         scene.bt_show_platta = False
         scene.bt_show_vagg = False
+        scene.bt_show_innervagg = False
         scene.bt_show_bjalklag = False
         scene.bt_show_fonster = False
         scene.bt_show_dorr = False

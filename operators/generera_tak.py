@@ -80,7 +80,6 @@ class MESH_OT_bt_skapa_tak(bpy.types.Operator):
             mesh.update()
             
             obj.location = (0, 0, 0)
-        
         # ----- SÄTT PARENT TILL EMPTY (från temp property) -----
         empty = None
         temp_empty_name = context.scene.get("temp_empty")
@@ -104,6 +103,6 @@ class MESH_OT_bt_skapa_tak(bpy.types.Operator):
             if obj.name.startswith("Tak_"):
                 obj.select_set(True)
                 context.view_layer.objects.active = obj
-        
+
         self.report({'INFO'}, f"Skapade 4 takdelar")
         return {'FINISHED'}
