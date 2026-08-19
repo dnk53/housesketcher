@@ -2545,7 +2545,7 @@ def bt_update_single_innervagg(innervagg_obj, context):
     start_x = innervagg_obj.get("start_x", 0.15)
     start_y = innervagg_obj.get("start_y", 0.0)
     langd = innervagg_obj.get("langd", 0.0)
-    rotation = innervagg_obj.get("rotation", 0.0)
+    rotation = innervagg_obj.get("rotation", 0.0)  # <-- HÄMTA FRÅN CUSTOM PROPERTIES
     base_z = innervagg_obj.get("base_z", 0.0)
     
     # Beräkna total höjd
@@ -2562,7 +2562,12 @@ def bt_update_single_innervagg(innervagg_obj, context):
     
     # Beräkna längd (om 0 = hela vägen)
     if langd == 0:
-        langd = calculate_innervagg_length(innervagg_obj, context)  # <-- ANVÄND FUNKTIONEN
+        # Använd den nya rotationen (i radianer)
+        langd = calculate_innervagg_length(
+            innervagg_obj, 
+            context, 
+            math.radians(rotation)  # <-- SKICKA MED NYA ROTATIONEN
+        )
     
     rotation_rad = math.radians(rotation)
     
@@ -2570,12 +2575,10 @@ def bt_update_single_innervagg(innervagg_obj, context):
     half_width = tjocklek / 2
     
     coords = [
-        # Botten (4 hörn)
         (0, -half_width, 0),
         (langd, -half_width, 0),
         (langd, half_width, 0),
         (0, half_width, 0),
-        # Topp (4 hörn)
         (0, -half_width, total_hojd),
         (langd, -half_width, total_hojd),
         (langd, half_width, total_hojd),
@@ -2655,13 +2658,13 @@ def _update_innervagg_boolean(innervagg_obj, scene, guide_type):
     bm_mod.object = guide_obj
     bm_mod.solver = 'EXACT'
 
-def calculate_innervagg_length(innervagg_obj, context):
+def calculate_innervagg_length(innervagg_obj, context, forced_rotation=None):
     """Beräknar innerväggens effektiva längd baserat på rotation och startpunkt"""
     
     scene = context.scene
     h = scene.bt_huvudmått
     
-    # Hämta byggnadens innermått (insida av ytterväggar)
+    # Hämta byggnadens innermått
     fasad_l = h.fasad_l
     fasad_b = h.fasad_b
     teoretisk_bredd = h.teoretisk_vagg_bredd
@@ -2672,8 +2675,11 @@ def calculate_innervagg_length(innervagg_obj, context):
     start_x = innervagg_obj.location.x
     start_y = innervagg_obj.location.y
     
-    # Hämta rotation
-    rotation = innervagg_obj.rotation_euler.z
+    # Hämta rotation - använd forced_rotation om den finns
+    if forced_rotation is not None:
+        rotation = forced_rotation
+    else:
+        rotation = innervagg_obj.rotation_euler.z
     
     # Riktningsvektor
     dx = math.cos(rotation)
@@ -2702,14 +2708,13 @@ def calculate_innervagg_length(innervagg_obj, context):
     if dists:
         langd = min(d for d in dists if d > 0.001)
     else:
-        langd = 5.0  # Fallback
+        langd = 5.0
     
-    # Begränsa till rimlig längd
     if langd <= 0 or langd > 1000:
         langd = 5.0
     
-    return langd    
-    
+    return langd  
+  
 # ---------------------------------------------------------------------------
 # 19. MATERIAL-FUNKTIONER
 # ---------------------------------------------------------------------------
