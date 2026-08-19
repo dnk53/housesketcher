@@ -1,0 +1,11 @@
+# ________________________________________________________________________________________________
+# KOMPONENTER - Komponentbibliotek för HouseSketcher
+# ________________________________________________________________________________________________
+
+from . import generera_fonster
+from . import generera_dorr
+
+# Exportera funktioner
+from .generera_fonster import create_window_component
+from .generera_dorr import create_door_component
+

@@ -318,22 +318,21 @@ class MESH_OT_bt_skapa_hus(bpy.types.Operator):
 
         
         # 3. SKAPA TAK
-        # Spara den nya Empty i en temporär scene-property
-        context.scene["temp_empty"] = empty.name
-        
         bpy.ops.mesh.bt_skapa_tak()
         
-        # Rensa temporär property
-        del context.scene["temp_empty"]
-        
-        # Hitta taket (takdelarna) för vidare användning
+        # Hitta taket (takdelarna)
         tak_obj = None
         for obj in context.scene.objects:
-            if obj.name.startswith("Tak_") and obj.parent == empty:
+            if obj.name.startswith("Tak_"):
                 tak_obj = obj
                 break
-
-                
+        
+        # ----- SÄTT RÄTT EMPTY PÅ TAKET -----
+        if tak_obj:
+            tak_obj.parent = empty
+            tak_obj.location = (0, 0, 0)
+            tak_obj.matrix_parent_inverse = empty.matrix_world.inverted()
+        
         # 4. SKAPA MALLAR
         if tak_obj:
             # Skapa collection för mallar
@@ -414,9 +413,52 @@ class MESH_OT_bt_skapa_hus(bpy.types.Operator):
                 Interior_Guide.parent = empty
                 mall_collection.objects.link(Interior_Guide)
         
+        # ----- SKAPA STANDARDKOMPONENTER -----
+        try:
+            from ..komponenter import generera_fonster, generera_dorr
+            
+            components_collection = utils.get_components_collection()
+            existing_names = [coll.name for coll in components_collection.children]
+            
+            # Räkna hur många fönster och dörrar som finns
+            window_count = len([c for c in components_collection.children if c.get("type") == "WINDOW"])
+            door_count = len([c for c in components_collection.children if c.get("type") == "DOOR"])
+            
+            # Skapa standardfönster om inga fönster finns
+            if window_count == 0:
+                generera_fonster.create_window_component(
+                    context,
+                    name="W100",
+                    W=1.20,
+                    H=1.50,
+                    kt=0.05,
+                    kd=0.10,
+                    indragning=0.01
+                )
+                print("Skapade standardfönster: W100")
+            
+            # Skapa standarddörr om inga dörrar finns
+            if door_count == 0:
+                generera_dorr.create_door_component(
+                    context,
+                    name="D100",
+                    W=0.90,
+                    H=2.10,
+                    kt=0.05,
+                    kd=0.10,
+                    tröskel=0.05,
+                    indragning=0.01,
+                    hangning="RIGHT"
+                )
+                print("Skapade standarddörr: D100")
+                
+        except Exception as e:
+            print(f"Kunde inte skapa standardkomponenter: {e}")
         
-    # ----- AVMARKERA ALLT OCH MARKERA EMPTY -----
-            bpy.ops.object.select_all(action='DESELECT')
-            empty.select_set(True)
-            context.view_layer.objects.active = empty
-            return {'FINISHED'}
+        # ----- AVMARKERA ALLT OCH MARKERA EMPTY -----
+        bpy.ops.object.select_all(action='DESELECT')
+        empty.select_set(True)
+        context.view_layer.objects.active = empty
+        
+        self.report({'INFO'}, f"Skapade hus: L={fasad_l:.1f}, B={fasad_b:.1f}, H={vagg_hojd:.1f}, Nock={nock_utsida:.2f}")
+        return {'FINISHED'}

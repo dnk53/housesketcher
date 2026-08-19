@@ -136,6 +136,12 @@ def sync_fonster_panel_from_selection(context):
 class BT_FonsterProperties(bpy.types.PropertyGroup):
     """Inställningar för fönster"""
     
+    komponent_namn: bpy.props.StringProperty(
+        name="Name",
+        description="Name of the component",
+        default="W101"
+    )
+    
     bredd: FloatProperty(
         name="Bredd",
         default=1.2,

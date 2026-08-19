@@ -4,6 +4,39 @@
 
 import bpy
 
+
+def get_component_items(self, context):
+    """Returnerar komponenter med mått i dropdown"""
+    items = []
+    
+    comp_coll = bpy.data.collections.get("Components")
+    if not comp_coll:
+        return [("", "Inga komponenter", "")]
+    
+    for coll in comp_coll.children:
+        comp_type = coll.get("type")
+        if comp_type not in ["WINDOW", "DOOR"]:
+            continue
+        
+        # Hämta mått
+        if comp_type == "WINDOW":
+            width = coll.get("width", 1.2)
+            height = coll.get("height", 1.5)
+            label = f"{coll.name} ({width:.2f}x{height:.2f})"
+        elif comp_type == "DOOR":
+            width = coll.get("width", 0.9)
+            height = coll.get("height", 2.1)
+            label = f"{coll.name} ({width:.2f}x{height:.2f})"
+        else:
+            label = coll.name
+        
+        items.append((coll.name, label, ""))
+    
+    # Sortera i bokstavsordning
+    items.sort(key=lambda x: x[1])
+    return items
+
+
 class VIEW3D_PT_huvudpanel(bpy.types.Panel):
     bl_label = "HouseSketcher"
     bl_idname = "VIEW3D_PT_huvudpanel"
@@ -159,13 +192,11 @@ class VIEW3D_PT_huvudpanel(bpy.types.Panel):
             p = scene.bt_vagg
             s = scene.bt_vagg_settings
             
-            # Width - alltid synlig
             col4.prop(p, "bredd")
             col4.prop(p, "spegelvänd")
             
             col4.separator()
             
-            # Start/Length/Height - alltid synliga med defaultvärden
             if active and active.get("typ") == "vägg":
                 vagg_typ = active.get("vagg_typ", "")
                 
@@ -178,7 +209,6 @@ class VIEW3D_PT_huvudpanel(bpy.types.Panel):
                 
                 col4.prop(s, "vagg_hojd")
             else:
-                # Ingen vägg markerad - visa defaultvärden
                 col4.prop(s, "start_x")
                 col4.prop(s, "langd_x")
                 col4.prop(s, "vagg_hojd")
@@ -238,16 +268,16 @@ class VIEW3D_PT_huvudpanel(bpy.types.Panel):
         if scene.bt_show_fonster:
             col6 = box6.column()
             p = scene.bt_fonster
+            
+            col6.prop(p, "komponent_namn")
             col6.prop(p, "bredd")
             col6.prop(p, "hojd")
             col6.prop(p, "karmtjocklek")
             col6.prop(p, "karmdjup")
-            col6.prop(p, "brostning")
             col6.prop(p, "indragning")
-            col6.prop(p, "placering")
             
             col6.separator()
-            col6.operator("mesh.bt_skapa_fonster", text="Add Window")
+            col6.operator("mesh.bt_skapa_fonster", text="Create Window Component")
 
         # ----- 41. DOORS -----
         box7 = layout.box()
@@ -258,6 +288,8 @@ class VIEW3D_PT_huvudpanel(bpy.types.Panel):
         if scene.bt_show_dorr:
             col7 = box7.column()
             p = scene.bt_dorr
+            
+            col7.prop(p, "komponent_namn")
             col7.prop(p, "hangning")
             col7.prop(p, "bredd")
             col7.prop(p, "hojd")
@@ -266,6 +298,23 @@ class VIEW3D_PT_huvudpanel(bpy.types.Panel):
             col7.prop(p, "karmdjup")
             col7.prop(p, "tröskelhöjd")
             col7.prop(p, "indragning")
-            col7.prop(p, "placering")
             col7.separator()
-            col7.operator("mesh.bt_skapa_dorr", text="Add Door")
+            col7.operator("mesh.bt_skapa_dorr", text="Create Door Component")
+
+        # ----- 50. PLACE COMPONENT -----
+        box9 = layout.box()
+        row9 = box9.row()
+        row9.prop(scene, "bt_show_komponenter", text="", icon='TRIA_DOWN' if scene.bt_show_komponenter else 'TRIA_RIGHT', emboss=False)
+        row9.label(text="50. Place Component")
+
+        if scene.bt_show_komponenter:
+            col9 = box9.column()
+            
+            # Dropdown med komponenter
+            col9.prop(scene, "bt_selected_component", text="")
+            
+            # Placering
+            col9.prop(scene, "bt_component_placering", text="Placement")
+            
+            # Knapp
+            col9.operator("mesh.bt_placera_komponent", text="Place in Wall")

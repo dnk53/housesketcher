@@ -2961,3 +2961,49 @@ def set_update_functions():
     """Sätter update-funktioner för properties som behöver dem"""
     pass
 
+# ---------------------------------------------------------------------------
+# HJÄLPFUNKTIONER FÖR KOMPONENTBIBLIOTEK
+# ---------------------------------------------------------------------------
+
+def get_components_collection():
+    """Hämtar eller skapar Components-collectionen"""
+    comp_coll = bpy.data.collections.get("Components")
+    if not comp_coll:
+        comp_coll = bpy.data.collections.new("Components")
+        comp_coll.hide_viewport = True
+        comp_coll.hide_render = True
+        bpy.context.scene.collection.children.link(comp_coll)
+    return comp_coll
+
+
+def generate_unique_component_name(base_name, existing_names):
+    """Genererar ett unikt komponentnamn med .001 suffix (som Blender)"""
+    
+    # Om namnet inte finns, använd det direkt
+    if base_name not in existing_names:
+        return base_name
+    
+    # Försök med .001, .002, etc.
+    counter = 1
+    while True:
+        candidate = f"{base_name}.{counter:03d}"
+        if candidate not in existing_names:
+            return candidate
+        counter += 1
+
+
+def get_component_by_name(name):
+    """Hittar en komponentcollection med givet namn"""
+    comp_coll = get_components_collection()
+    for coll in comp_coll.children:
+        if coll.name == name:
+            return coll
+    return None
+
+
+def get_all_components():
+    """Returnerar alla komponenter"""
+    comp_coll = get_components_collection()
+    return list(comp_coll.children)
+    
+    

@@ -164,10 +164,15 @@ def sync_dorr_panel_from_selection(context):
 class BT_DorrProperties(bpy.types.PropertyGroup):
     """Inställningar för dörrar"""
     
+    komponent_namn: bpy.props.StringProperty(
+        name="Name",
+        description="Name of the component",
+        default="D101"
+    )
+    
     bredd: FloatProperty(
         name="Bredd",
-        description="Dörrens bredd",
-        default=1.0,
+        default=0.9,
         min=0.3,
         step=10,
         update=bt_update_dorr

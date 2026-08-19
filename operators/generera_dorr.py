@@ -1,270 +1,36 @@
 # ________________________________________________________________________________________________
-# OPERATOR - GENERERA DÖRR (med dörrblad som förälder)
+# OPERATOR - GENERERA DÖRR (som komponent)
 # ________________________________________________________________________________________________
 
 import bpy
-import bmesh
-import math
-import mathutils
-from mathutils import Matrix, Vector
-
-from .. import utils
+from ..komponenter import generera_dorr as komponent_dorr
 
 
 class MESH_OT_bt_skapa_dorr(bpy.types.Operator):
     bl_idname = "mesh.bt_skapa_dorr"
-    bl_label = "Generera dörr"
+    bl_label = "Create Door Component"
     bl_options = {'REGISTER', 'UNDO'}
     
     def execute(self, context):
         p = context.scene.bt_dorr
-        W, H, kt, kd = p.bredd, p.hojd, p.karmtjocklek, p.karmdjup
-        tröskel = p.tröskelhöjd
-        indragning = p.indragning
         
-        # Hitta ALLA markerade väggar (inklusive innerväggar)
-        selected_walls = [obj for obj in context.selected_objects 
-                          if obj.get("typ") in ["vägg", "innervagg"]]
+        # Använd användarens namn eller default
+        name = p.komponent_namn
+        if not name.strip():
+            name = "Dörr"
         
-        if not selected_walls:
-            self.report({'WARNING'}, "Markera minst en vägg eller innervägg först!")
-            return {'CANCELLED'}
+        # Skapa komponenten
+        komponent_dorr.create_door_component(
+            context,
+            name=name,
+            W=p.bredd,
+            H=p.hojd,
+            kt=p.karmtjocklek,
+            kd=p.karmdjup,
+            tröskel=p.tröskelhöjd,
+            indragning=p.indragning,
+            hangning=p.hangning
+        )
         
-        # Skapa collections om de inte finns
-        hal_collection = bpy.data.collections.get("Hål")
-        if not hal_collection:
-            hal_collection = bpy.data.collections.new("Hål")
-            context.scene.collection.children.link(hal_collection)
-        
-        dorr_collection = bpy.data.collections.get("Dörrar")
-        if not dorr_collection:
-            dorr_collection = bpy.data.collections.new("Dörrar")
-            context.scene.collection.children.link(dorr_collection)
-        
-        # Loopa över alla markerade väggar
-        total_dorrar = 0
-        last_dorr = None
-        
-        for parent_obj in selected_walls:
-            # Hämta väggens egenskaper (beroende på typ)
-            if parent_obj.get("typ") == "innervagg":
-                wall_length = parent_obj.get("langd", 5.0)
-                # Om längden är 0, beräkna den noggrant
-                if wall_length == 0:
-                    wall_length = utils.calculate_innervagg_length(parent_obj, context)
-                wall_bredd = parent_obj.get("tjocklek", 0.120)
-                is_interior = True
-                cutter_depth = wall_bredd + 0.5
-            else:
-                wall_length = parent_obj.get("vagg_langd", 5.0)
-                wall_bredd = parent_obj.get("vagg_bredd", 0.15)
-                is_interior = False
-                cutter_depth = wall_bredd + 0.5
-            
-            # Hämta position från property
-            x_pos = p.placering
-            
-            # Beräkna position baserat på värde
-            if x_pos == 0:
-                x_pos = wall_length / 2.0
-            elif x_pos < 0:
-                x_pos = wall_length + x_pos
-            
-            idx = total_dorrar
-            w_halv = W / 2.0
-            x_inner = w_halv - kt
-            z_inner = H - kt
-            mellanrum = 0.003
-            
-            # Dörrbladets mått
-            blad_w = x_inner - mellanrum
-            blad_h = z_inner - tröskel - mellanrum
-            
-            # ---------- SKAPA KARM ----------
-            karm_coords = [
-                (-w_halv, indragning, 0), (w_halv, indragning, 0), 
-                (w_halv, indragning, H), (-w_halv, indragning, H),
-                (-w_halv, indragning + kd, 0), (w_halv, indragning + kd, 0), 
-                (w_halv, indragning + kd, H), (-w_halv, indragning + kd, H),
-                (-x_inner, indragning, tröskel), (x_inner, indragning, tröskel), 
-                (x_inner, indragning, z_inner), (-x_inner, indragning, z_inner),
-                (-x_inner, indragning + kd, tröskel), (x_inner, indragning + kd, tröskel), 
-                (x_inner, indragning + kd, z_inner), (-x_inner, indragning + kd, z_inner),
-            ]
-            
-            karm_faces = [
-                (0, 1, 9, 8), (1, 2, 10, 9), (2, 3, 11, 10), (3, 0, 8, 11),
-                (4, 5, 13, 12), (5, 6, 14, 13), (6, 7, 15, 14), (7, 4, 12, 15),
-                (0, 4, 5, 1), (1, 5, 6, 2), (2, 6, 7, 3), (3, 7, 4, 0),
-                (8, 12, 13, 9), (9, 13, 14, 10), (10, 14, 15, 11), (11, 15, 12, 8),
-            ]
-            
-            karm_mesh = bpy.data.meshes.new(f"Karm_mesh_{idx}")
-            karm_obj = bpy.data.objects.new(f"Karm_{idx}", karm_mesh)
-            dorr_collection.objects.link(karm_obj)
-            
-            bm = bmesh.new()
-            for c in karm_coords:
-                bm.verts.new(c)
-            bm.verts.ensure_lookup_table()
-            for f in karm_faces:
-                try:
-                    bm.faces.new([bm.verts[i] for i in f])
-                except:
-                    pass
-            bm.to_mesh(karm_mesh)
-            bm.free()
-            karm_mesh.update()
-            
-            mk = utils.get_material_dorrkarm()
-            karm_obj.data.materials.append(mk)
-            
-            # ---------- SKAPA DÖRRBLAD ----------
-            blad_coords = [
-                (-blad_w, indragning + 0.01, tröskel + 0.01),
-                (blad_w, indragning + 0.01, tröskel + 0.01),
-                (blad_w, indragning + 0.01, tröskel + blad_h - 0.01),
-                (-blad_w, indragning + 0.01, tröskel + blad_h - 0.01),
-                (-blad_w, indragning + kd - 0.01, tröskel + 0.01),
-                (blad_w, indragning + kd - 0.01, tröskel + 0.01),
-                (blad_w, indragning + kd - 0.01, tröskel + blad_h - 0.01),
-                (-blad_w, indragning + kd - 0.01, tröskel + blad_h - 0.01),
-            ]
-            
-            blad_faces = [
-                (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6),
-                (3, 0, 4, 7), (4, 5, 6, 7), (0, 3, 2, 1),
-            ]
-            
-            blad_mesh = bpy.data.meshes.new(f"Dörrblad_mesh_{idx}")
-            blad_obj = bpy.data.objects.new(f"Dörrblad_{idx}", blad_mesh)
-            dorr_collection.objects.link(blad_obj)
-            
-            # Spara custom properties på dörrbladet
-            blad_obj["typ"] = "dorr"
-            blad_obj["dorr_bredd"] = W
-            blad_obj["dorr_hojd"] = H
-            blad_obj["karmtjocklek"] = kt
-            blad_obj["karmdjup"] = kd
-            blad_obj["tröskelhöjd"] = tröskel
-            blad_obj["indragning"] = indragning
-            blad_obj["hangning"] = p.hangning
-            blad_obj["placering"] = p.placering
-            blad_obj["niva"] = p.niva
-            blad_obj["is_interior"] = is_interior
-            
-            bm = bmesh.new()
-            for c in blad_coords:
-                bm.verts.new(c)
-            bm.verts.ensure_lookup_table()
-            for f in blad_faces:
-                try:
-                    bm.faces.new([bm.verts[i] for i in f])
-                except:
-                    pass
-            bm.to_mesh(blad_mesh)
-            bm.free()
-            blad_mesh.update()
-            
-            md = utils.get_material_dorrblad()
-            blad_obj.data.materials.append(md)
-            
-            # KARM BLIR BARN TILL DÖRRBLAD
-            karm_obj.parent = blad_obj
-            karm_obj.location = (0, 0, 0)
-            
-            # ---------- SKAPA DÖRRHANDTAG ----------
-            w_halv = W / 2.0
-            x_inner = w_halv - kt
-            mellanrum = 0.003
-            blad_w = x_inner - mellanrum
-            
-            # Ta bort eventuella gamla handtag
-            for child in blad_obj.children:
-                if child.name.startswith("Handtag_") or child.name.startswith("Dörrhandtag") or child.name.startswith("Rosett"):
-                    bpy.data.objects.remove(child, do_unlink=True)
-            
-            # Skapa nya handtaget
-            handtag_x = -blad_w + 0.03 if p.hangning == 'RIGHT' else blad_w - 0.03
-            handtag_pos = (handtag_x, indragning + kd / 2, 0)
-            
-            handtag_obj = utils.skapa_dorrhandtag(
-                context,
-                hangning=p.hangning,
-                position=handtag_pos,
-                parent=blad_obj
-            )
-            
-            # ---------- SKAPA CUTTER ----------
-            m_cut = bpy.data.meshes.new(f"D_cutter_{idx}")
-            o_cut = bpy.data.objects.new(f"Hål_Dörr_{idx}", m_cut)
-            hal_collection.objects.link(o_cut)
-            
-            cutter_start = indragning - 0.1
-            cutter_depth = wall_bredd + 0.5  # <-- ÖKAT DJUP
-            
-            cc = [
-                (-w_halv, cutter_start, -0.0001), (w_halv, cutter_start, -0.0001), 
-                (w_halv, cutter_start, H), (-w_halv, cutter_start, H),
-                (-w_halv, cutter_start + cutter_depth, -0.0001), 
-                (w_halv, cutter_start + cutter_depth, -0.0001),
-                (w_halv, cutter_start + cutter_depth, H), 
-                (-w_halv, cutter_start + cutter_depth, H)
-            ]
-            cf = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
-            
-            bm_c = bmesh.new()
-            for c in cc:
-                bm_c.verts.new(c)
-            bm_c.verts.ensure_lookup_table()
-            for f in cf:
-                try:
-                    bm_c.faces.new([bm_c.verts[i] for i in f])
-                except:
-                    pass
-            bm_c.to_mesh(m_cut)
-            bm_c.free()
-            m_cut.update()
-            
-            o_cut.display_type = 'WIRE'
-            o_cut.visible_camera = False
-            o_cut.visible_shadow = False
-            
-            # CUTTER BLIR BARN TILL DÖRRBLAD
-            o_cut.parent = blad_obj
-            o_cut.location = (0, 0, 0)
-            
-            # ---------- PLACERA DÖRREN ----------
-            if is_interior:
-                # Innervägg: referenspunkt är i centrum, förskjut med halva tjockleken
-                half_thickness = wall_bredd / 2
-                blad_obj.parent = parent_obj
-                blad_obj.location = (x_pos, -half_thickness, p.niva)
-            else:
-                # Yttervägg: använd befintlig logik
-                blad_obj.parent = parent_obj
-                blad_obj.location = (x_pos, 0.0, p.niva)
-            
-            # Lägg till Boolean-modifierare på väggen
-            old_mod = parent_obj.modifiers.get("Hål_Collection")
-            if old_mod:
-                parent_obj.modifiers.remove(old_mod)
-            
-            bm_mod = parent_obj.modifiers.new(name="Hål_Collection", type='BOOLEAN')
-            bm_mod.operation = 'DIFFERENCE'
-            bm_mod.object = None
-            bm_mod.collection = hal_collection
-            bm_mod.operand_type = 'COLLECTION'
-            bm_mod.solver = 'FLOAT'
-            
-            total_dorrar += 1
-            last_dorr = blad_obj
-        
-        # ----- MARKERA DET SISTA DÖRRBLADET -----
-        bpy.ops.object.select_all(action='DESELECT')
-        if last_dorr:
-            last_dorr.select_set(True)
-            context.view_layer.objects.active = last_dorr
-        
-        self.report({'INFO'}, f"Skapade {total_dorrar} dörrar på {len(selected_walls)} vägg(ar)")
+        self.report({'INFO'}, f"Skapade dörrkomponent: {name}")
         return {'FINISHED'}

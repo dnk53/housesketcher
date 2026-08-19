@@ -25,6 +25,7 @@ from .operators import (
     generera_hus, generera_platta, generera_vagg, 
     generera_tak, generera_bjalklag, generera_fonster, generera_dorr,
     generera_innervagg,
+    placera_komponent,
     meny_hantering
 )
 from . import ui
@@ -44,7 +45,7 @@ classes = (
     bjalklag.BT_BjälklagProperties,
     fonster.BT_FonsterProperties,
     dorr.BT_DorrProperties,
-    innervagg.BT_InnervaggProperties,  # <-- LÄGG TILL
+    innervagg.BT_InnervaggProperties,
     
     # Operators
     generera_hus.MESH_OT_bt_skapa_hus,
@@ -54,7 +55,8 @@ classes = (
     generera_bjalklag.MESH_OT_bt_skapa_bjalklag,
     generera_fonster.MESH_OT_bt_skapa_fonster,
     generera_dorr.MESH_OT_bt_skapa_dorr,
-    generera_innervagg.MESH_OT_bt_skapa_innervagg,  # <-- LÄGG TILL
+    generera_innervagg.MESH_OT_bt_skapa_innervagg,
+    placera_komponent.MESH_OT_bt_placera_komponent,
     meny_hantering.MESH_OT_bt_dolj_alla_menyer,
     meny_hantering.MESH_OT_bt_uppdatera_mallar,
     
@@ -79,7 +81,7 @@ def register():
     bpy.types.Scene.bt_bjalklag = bpy.props.PointerProperty(type=bjalklag.BT_BjälklagProperties)
     bpy.types.Scene.bt_fonster = bpy.props.PointerProperty(type=fonster.BT_FonsterProperties)
     bpy.types.Scene.bt_dorr = bpy.props.PointerProperty(type=dorr.BT_DorrProperties)
-    bpy.types.Scene.bt_innervagg = bpy.props.PointerProperty(type=innervagg.BT_InnervaggProperties)  # <-- LÄGG TILL
+    bpy.types.Scene.bt_innervagg = bpy.props.PointerProperty(type=innervagg.BT_InnervaggProperties)
     
     # UI-kollaps properties
     bpy.types.Scene.bt_show_huvudmått = bpy.props.BoolProperty(default=False)
@@ -89,11 +91,26 @@ def register():
     bpy.types.Scene.bt_show_mansard = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_platta = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_vagg = bpy.props.BoolProperty(default=False)
-    bpy.types.Scene.bt_show_innervagg = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_tak = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_bjalklag = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_fonster = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_dorr = bpy.props.BoolProperty(default=False)
+    bpy.types.Scene.bt_show_innervagg = bpy.props.BoolProperty(default=False)
+    bpy.types.Scene.bt_show_komponenter = bpy.props.BoolProperty(default=False)
+    
+    # Komponent-properties
+    bpy.types.Scene.bt_selected_component = bpy.props.EnumProperty(
+        name="Component",
+        description="Select a component to place",
+        items=ui.get_component_items
+    )
+    
+    bpy.types.Scene.bt_component_placering = bpy.props.FloatProperty(
+        name="Placement",
+        description="Position along wall (0=center, negative=from right)",
+        default=0.0,
+        step=10
+    )
     
     # Synkroniseringshandlare
     bpy.app.handlers.depsgraph_update_post.append(utils.bt_master_synk_handler)
@@ -122,8 +139,9 @@ def unregister():
         'bt_tak', 'bt_bjalklag', 'bt_fonster', 'bt_dorr', 'bt_innervagg',
         'bt_show_huvudmått', 'bt_show_symmetrisk', 'bt_show_osymmetrisk',
         'bt_show_asymmetric', 'bt_show_mansard',
-        'bt_show_platta', 'bt_show_vagg', 'bt_show_innervagg', 'bt_show_tak', 
-        'bt_show_bjalklag', 'bt_show_fonster', 'bt_show_dorr', 'bt_show_innervagg'
+        'bt_show_platta', 'bt_show_vagg', 'bt_show_tak', 
+        'bt_show_bjalklag', 'bt_show_fonster', 'bt_show_dorr', 'bt_show_innervagg',
+        'bt_show_komponenter', 'bt_selected_component', 'bt_component_placering'
     ]
     for prop in props:
         try:
