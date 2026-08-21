@@ -63,20 +63,33 @@ def create_door_component(context, name, W, H, kt, kd, tröskel, indragning, han
     comp_collection.objects.link(karm_obj)
     
     bm = bmesh.new()
+    
     for c in karm_coords:
         bm.verts.new(c)
+    
     bm.verts.ensure_lookup_table()
+    
+    # ----- SPARA VERTEX-INDICES INNAN faces skapas -----
+    karm_vert_indices = []
+    for v in bm.verts:
+        karm_vert_indices.append(v.index)
+    
     for f in karm_faces:
         try:
             bm.faces.new([bm.verts[i] for i in f])
         except:
             pass
+    
+    mk = utils.get_material_dorrkarm()
+    karm_obj.data.materials.append(mk)
+    
     bm.to_mesh(karm_mesh)
     bm.free()
     karm_mesh.update()
     
-    mk = utils.get_material_dorrkarm()
-    karm_obj.data.materials.append(mk)
+    # SPARA VERTEX-INDICES PÅ KARMEN
+    karm_obj["vertex_indices"] = karm_vert_indices
+    karm_obj["vertex_count"] = len(karm_coords)
     
     # ----- SKAPA DÖRRBLAD -----
     blad_coords = [
@@ -99,21 +112,34 @@ def create_door_component(context, name, W, H, kt, kd, tröskel, indragning, han
     blad_obj = bpy.data.objects.new(f"{unique_name}_Blad", blad_mesh)
     comp_collection.objects.link(blad_obj)
     
-    bm = bmesh.new()
+    bm_b = bmesh.new()
+    
     for c in blad_coords:
-        bm.verts.new(c)
-    bm.verts.ensure_lookup_table()
+        bm_b.verts.new(c)
+    
+    bm_b.verts.ensure_lookup_table()
+    
+    # ----- SPARA VERTEX-INDICES INNAN faces skapas -----
+    blad_vert_indices = []
+    for v in bm_b.verts:
+        blad_vert_indices.append(v.index)
+    
     for f in blad_faces:
         try:
-            bm.faces.new([bm.verts[i] for i in f])
+            bm_b.faces.new([bm_b.verts[i] for i in f])
         except:
             pass
-    bm.to_mesh(blad_mesh)
-    bm.free()
-    blad_mesh.update()
     
     md = utils.get_material_dorrblad()
     blad_obj.data.materials.append(md)
+    
+    bm_b.to_mesh(blad_mesh)
+    bm_b.free()
+    blad_mesh.update()
+    
+    # SPARA VERTEX-INDICES PÅ BLADET
+    blad_obj["vertex_indices"] = blad_vert_indices
+    blad_obj["vertex_count"] = len(blad_coords)
     
     # ----- SKAPA DÖRRHANDTAG -----
     handtag_x = -blad_w + 0.03 if hangning == 'RIGHT' else blad_w - 0.03
@@ -131,5 +157,3 @@ def create_door_component(context, name, W, H, kt, kd, tröskel, indragning, han
     comp_collection.hide_render = True
     
     return comp_collection
-    
-    

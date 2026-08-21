@@ -26,6 +26,8 @@ from .operators import (
     generera_tak, generera_bjalklag, generera_fonster, generera_dorr,
     generera_innervagg,
     placera_komponent,
+    ta_bort_komponent,
+    uppdatera_placering,
     meny_hantering
 )
 from . import ui
@@ -33,7 +35,41 @@ from . import utils
 
 
 # ---------------------------------------------------------------------------
-# 2. REGISTRERINGSKLASSER
+# 2. HJÄLPFUNKTION FÖR PLACERINGS-UPPDATERING
+# ---------------------------------------------------------------------------
+def update_placement(self, context):
+    """Uppdaterar placering av markerad komponent (fönster eller dörr)"""
+    from .properties.fonster import bt_update_fonster_placering
+    from .properties.dorr import bt_update_dorr_placering
+    
+    scene = context.scene
+    selected = context.selected_objects
+    
+    # Hitta markerad komponent
+    selected_component = None
+    for obj in selected:
+        current = obj
+        while current:
+            if current.get("komponent_typ") in ["WINDOW", "DOOR"]:
+                selected_component = current
+                break
+            current = current.parent
+        if selected_component:
+            break
+    
+    if not selected_component:
+        return
+    
+    comp_type = selected_component.get("komponent_typ")
+    
+    if comp_type == "WINDOW":
+        bt_update_fonster_placering(self, context)
+    elif comp_type == "DOOR":
+        bt_update_dorr_placering(self, context)
+
+
+# ---------------------------------------------------------------------------
+# 3. REGISTRERINGSKLASSER
 # ---------------------------------------------------------------------------
 classes = (
     # Properties
@@ -57,6 +93,8 @@ classes = (
     generera_dorr.MESH_OT_bt_skapa_dorr,
     generera_innervagg.MESH_OT_bt_skapa_innervagg,
     placera_komponent.MESH_OT_bt_placera_komponent,
+    ta_bort_komponent.MESH_OT_bt_ta_bort_komponent,
+    uppdatera_placering.MESH_OT_bt_uppdatera_placering,
     meny_hantering.MESH_OT_bt_dolj_alla_menyer,
     meny_hantering.MESH_OT_bt_uppdatera_mallar,
     
@@ -66,7 +104,7 @@ classes = (
 
 
 # ---------------------------------------------------------------------------
-# 3. REGISTRERING
+# 4. REGISTRERING
 # ---------------------------------------------------------------------------
 def register():
     for cls in classes:
@@ -98,7 +136,7 @@ def register():
     bpy.types.Scene.bt_show_innervagg = bpy.props.BoolProperty(default=False)
     bpy.types.Scene.bt_show_komponenter = bpy.props.BoolProperty(default=False)
     
-    # Komponent-properties
+    # Komponent-properties (50. Place Component)
     bpy.types.Scene.bt_selected_component = bpy.props.EnumProperty(
         name="Component",
         description="Select a component to place",
@@ -109,7 +147,26 @@ def register():
         name="Placement",
         description="Position along wall (0=center, negative=from right)",
         default=0.0,
-        step=10
+        step=10,
+        update=update_placement  # <-- ANVÄND NYA FUNKTIONEN
+    )
+    
+    bpy.types.Scene.bt_component_niva = bpy.props.FloatProperty(
+        name="Level",
+        description="Height above floor (0 = on floor)",
+        default=0.0,
+        min=0.0,
+        step=10,
+        update=update_placement  # <-- ANVÄND NYA FUNKTIONEN
+    )
+    
+    bpy.types.Scene.bt_component_indragning = bpy.props.FloatProperty(
+        name="Inset",
+        description="Inset from wall surface",
+        default=0.01,
+        min=0.0,
+        step=1,
+        update=update_placement  # <-- ANVÄND NYA FUNKTIONEN
     )
     
     # Synkroniseringshandlare
@@ -141,7 +198,8 @@ def unregister():
         'bt_show_asymmetric', 'bt_show_mansard',
         'bt_show_platta', 'bt_show_vagg', 'bt_show_tak', 
         'bt_show_bjalklag', 'bt_show_fonster', 'bt_show_dorr', 'bt_show_innervagg',
-        'bt_show_komponenter', 'bt_selected_component', 'bt_component_placering'
+        'bt_show_komponenter', 'bt_selected_component', 'bt_component_placering',
+        'bt_component_niva', 'bt_component_indragning'
     ]
     for prop in props:
         try:

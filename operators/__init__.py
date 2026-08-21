@@ -11,6 +11,8 @@ from . import generera_fonster
 from . import generera_dorr
 from . import generera_innervagg
 from . import placera_komponent
+from . import ta_bort_komponent
+from . import uppdatera_placering
 from . import meny_hantering
 
 classes = (
@@ -23,6 +25,8 @@ classes = (
     generera_dorr.MESH_OT_bt_skapa_dorr,
     generera_innervagg.MESH_OT_bt_skapa_innervagg,
     placera_komponent.MESH_OT_bt_placera_komponent,
+    ta_bort_komponent.MESH_OT_bt_ta_bort_komponent,
+    uppdatera_placering.MESH_OT_bt_uppdatera_placering,
     meny_hantering.MESH_OT_bt_dolj_alla_menyer,
     meny_hantering.MESH_OT_bt_uppdatera_mallar,
 )

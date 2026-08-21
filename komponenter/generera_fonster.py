@@ -35,78 +35,77 @@ def create_window_component(context, name, W, H, kt, kd, indragning):
     
     components_collection.children.link(comp_collection)
     
-    # ----- SKAPA KARM -----
+    # ----- SKAPA KARM MED GLAS (EN MESH) -----
     coords = [
+        # 0-3: Ytterram fram
         (-w_halv, indragning, 0), (w_halv, indragning, 0), (w_halv, indragning, H), (-w_halv, indragning, H),
+        # 4-7: Innerram fram
         (-x_inner, indragning, kt), (x_inner, indragning, kt), (x_inner, indragning, z_inner), (-x_inner, indragning, z_inner),
+        # 8-11: Ytterram bak
         (-w_halv, indragning + kd, 0), (w_halv, indragning + kd, 0), (w_halv, indragning + kd, H), (-w_halv, indragning + kd, H),
+        # 12-15: Innerram bak
         (-x_inner, indragning + kd, kt), (x_inner, indragning + kd, kt), (x_inner, indragning + kd, z_inner), (-x_inner, indragning + kd, z_inner),
+        # 16-19: Glas (mitten av karmen)
         (-x_inner, indragning + y_glas, kt), (x_inner, indragning + y_glas, kt), (x_inner, indragning + y_glas, z_inner), (-x_inner, indragning + y_glas, z_inner)
     ]
     
     faces = [
-        (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7),
-        (8, 9, 13, 12), (9, 10, 14, 13), (10, 11, 15, 14), (11, 8, 12, 15),
-        (0, 1, 9, 8), (1, 2, 10, 9), (2, 3, 11, 10), (3, 0, 8, 11),
-        (4, 5, 13, 12), (5, 6, 14, 13), (6, 7, 15, 14), (7, 4, 12, 15),
-        (16, 17, 18, 19)
+        # Karm-ytor (material 0 = karm)
+        (0, 1, 5, 4),  # fram-vänster
+        (1, 2, 6, 5),  # fram-topp
+        (2, 3, 7, 6),  # fram-höger
+        (3, 0, 4, 7),  # fram-botten
+        (8, 9, 13, 12),  # bak-vänster
+        (9, 10, 14, 13),  # bak-topp
+        (10, 11, 15, 14),  # bak-höger
+        (11, 8, 12, 15),  # bak-botten
+        (0, 1, 9, 8),  # vänster-sida
+        (1, 2, 10, 9),  # topp-sida
+        (2, 3, 11, 10),  # höger-sida
+        (3, 0, 8, 11),  # botten-sida
+        (4, 5, 13, 12),  # innre vänster
+        (5, 6, 14, 13),  # innre topp
+        (6, 7, 15, 14),  # innre höger
+        (7, 4, 12, 15),  # innre botten
+        # Glas (material 1 = glas)
+        (16, 17, 18, 19),
     ]
     
     mesh = bpy.data.meshes.new(f"{unique_name}_Mesh")
-    obj = bpy.data.objects.new(f"{unique_name}_Karm", mesh)
+    obj = bpy.data.objects.new(f"{unique_name}", mesh)
     comp_collection.objects.link(obj)
     
     bm = bmesh.new()
+    
     for c in coords:
         bm.verts.new(c)
+    
     bm.verts.ensure_lookup_table()
+    
     for f in faces:
         try:
             bm.faces.new([bm.verts[i] for i in f])
         except:
             pass
     
-    # Material
+    # Material: index 0 = karm, index 1 = glas
     mk = utils.get_material_fonsterkarm()
+    mg = utils.get_material_glas()
     obj.data.materials.append(mk)
-    for face_idx, face in enumerate(bm.faces):
-        face.material_index = 0 if face_idx < 16 else 1
+    obj.data.materials.append(mg)
+    
+    # Tilldela material baserat på face-index
+    for i, face in enumerate(bm.faces):
+        face.material_index = 1 if i == 16 else 0  # Sista facen = glas
     
     bm.to_mesh(mesh)
     bm.free()
     mesh.update()
     
-    # ----- SKAPA GLAS -----
-    mesh_glas = bpy.data.meshes.new(f"{unique_name}_Glas_Mesh")
-    glas_obj = bpy.data.objects.new(f"{unique_name}_Glas", mesh_glas)
-    comp_collection.objects.link(glas_obj)
-    
-    glas_coords = [
-        (-x_inner, indragning + y_glas, kt),
-        (x_inner, indragning + y_glas, kt),
-        (x_inner, indragning + y_glas, z_inner),
-        (-x_inner, indragning + y_glas, z_inner),
-    ]
-    glas_faces = [(0, 1, 2, 3)]
-    
-    bm_g = bmesh.new()
-    for c in glas_coords:
-        bm_g.verts.new(c)
-    bm_g.verts.ensure_lookup_table()
-    for f in glas_faces:
-        bm_g.faces.new([bm_g.verts[i] for i in f])
-    
-    mg = utils.get_material_glas()
-    glas_obj.data.materials.append(mg)
-    
-    bm_g.to_mesh(mesh_glas)
-    bm_g.free()
-    mesh_glas.update()
+    # INGA vertex_indices BEHÖVS - Blender håller ordning på vertices
     
     # Gör collectionen osynlig i viewport
     comp_collection.hide_viewport = True
     comp_collection.hide_render = True
     
     return comp_collection
-    
-    

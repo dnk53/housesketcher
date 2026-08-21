@@ -30,7 +30,7 @@ class MESH_OT_bt_placera_komponent(bpy.types.Operator):
             self.report({'ERROR'}, f"Komponenten '{comp_name}' hittades inte!")
             return {'CANCELLED'}
         
-        # Hitta markerade väggar (inklusive innerväggar)
+        # Hitta markerade väggar
         selected_walls = [obj for obj in context.selected_objects 
                           if obj.get("typ") in ["vägg", "innervagg"]]
         
@@ -43,16 +43,19 @@ class MESH_OT_bt_placera_komponent(bpy.types.Operator):
         if comp_type == "WINDOW":
             width = comp_collection.get("width", 1.2)
             height = comp_collection.get("height", 1.5)
-            indragning = comp_collection.get("indragning", 0.01)
         elif comp_type == "DOOR":
             width = comp_collection.get("width", 0.9)
             height = comp_collection.get("height", 2.1)
-            indragning = comp_collection.get("indragning", 0.01)
         else:
             self.report({'ERROR'}, f"Okänd komponenttyp: {comp_type}")
             return {'CANCELLED'}
         
-        # Skapa collections för hål om de inte finns
+        # Hämta placeringsparametrar
+        placering = scene.bt_component_placering
+        niva = scene.bt_component_niva
+        indragning = scene.bt_component_indragning
+        
+        # Skapa collections för hål
         hal_collection = bpy.data.collections.get("Hål")
         if not hal_collection:
             hal_collection = bpy.data.collections.new("Hål")
@@ -60,6 +63,7 @@ class MESH_OT_bt_placera_komponent(bpy.types.Operator):
         
         # Loopa över alla markerade väggar
         total_placerade = 0
+        last_placed = None
         
         for wall_obj in selected_walls:
             # Hämta väggens egenskaper
@@ -69,51 +73,55 @@ class MESH_OT_bt_placera_komponent(bpy.types.Operator):
                     wall_length = utils.calculate_innervagg_length(wall_obj, context)
                 wall_bredd = wall_obj.get("tjocklek", 0.120)
                 is_interior = True
+                half_thickness = wall_bredd / 2
             else:
                 wall_length = wall_obj.get("vagg_langd", 5.0)
                 wall_bredd = wall_obj.get("vagg_bredd", 0.15)
                 is_interior = False
+                half_thickness = 0
             
-            # Hämta placering (från scene property)
-            placering = scene.bt_component_placering
+            # Beräkna position
             if placering == 0:
-                placering = wall_length / 2.0
+                x_pos = wall_length / 2.0
             elif placering < 0:
-                placering = wall_length + placering
+                x_pos = wall_length + placering
+            else:
+                x_pos = placering
             
-            # ----- SKAPA EN ROOT EMPTY FÖR KOMPONENTEN -----
-            root_empty = bpy.data.objects.new(f"{comp_name}_{total_placerade}", None)
+            # ----- SKAPA ROOT EMPTY -----
+            root_empty = bpy.data.objects.new(comp_name, None)
             context.collection.objects.link(root_empty)
             root_empty.empty_display_type = 'PLAIN_AXES'
             root_empty.empty_display_size = 0.1
             
-            # Duplicera komponentens objekt och parenta till root_empty
+            # Duplicera komponentens objekt
             for obj in comp_collection.objects:
                 new_obj = obj.copy()
-                new_obj.data = obj.data.copy()
+                new_obj.data = obj.data
                 new_obj.parent = root_empty
                 new_obj.location = (0, 0, 0)
                 context.collection.objects.link(new_obj)
             
-            # Sätt root_empty's position och parent
+            # Sätt position
             if is_interior:
-                half_thickness = wall_bredd / 2
                 root_empty.parent = wall_obj
-                root_empty.location = (placering, -half_thickness, 0)
+                root_empty.location = (x_pos, -half_thickness + indragning, niva)
             else:
                 root_empty.parent = wall_obj
-                root_empty.location = (placering, 0.0, 0)
+                root_empty.location = (x_pos, indragning, niva)
             
-            # Spara info om komponenten
+            # Spara info
             root_empty["komponent_namn"] = comp_name
             root_empty["komponent_typ"] = comp_type
-            root_empty["placering"] = placering
+            root_empty["placering"] = x_pos
+            root_empty["niva"] = niva
+            root_empty["indragning"] = indragning
             
             # ----- SKAPA CUTTER -----
             w_halv = width / 2.0
             H = height
-            cutter_depth = wall_bredd + 0.5
-            cutter_start = -0.1
+            cutter_depth = 0.800
+            cutter_start = -0.300
             
             m_cut = bpy.data.meshes.new(f"Hål_{comp_name}_{total_placerade}")
             o_cut = bpy.data.objects.new(f"Hål_{comp_name}_{total_placerade}", m_cut)
@@ -122,8 +130,8 @@ class MESH_OT_bt_placera_komponent(bpy.types.Operator):
             cc = [
                 (-w_halv, cutter_start, -0.0001), (w_halv, cutter_start, -0.0001), 
                 (w_halv, cutter_start, H), (-w_halv, cutter_start, H),
-                (-w_halv, cutter_depth, -0.0001), (w_halv, cutter_depth, -0.0001), 
-                (w_halv, cutter_depth, H), (-w_halv, cutter_depth, H)
+                (-w_halv, cutter_start + cutter_depth, -0.0001), (w_halv, cutter_start + cutter_depth, -0.0001), 
+                (w_halv, cutter_start + cutter_depth, H), (-w_halv, cutter_start + cutter_depth, H)
             ]
             cf = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
             
@@ -146,7 +154,7 @@ class MESH_OT_bt_placera_komponent(bpy.types.Operator):
             o_cut.parent = root_empty
             o_cut.location = (0, 0, 0)
             
-            # Lägg till Boolean-modifierare på väggen
+            # Lägg till Boolean-modifierare
             old_mod = wall_obj.modifiers.get("Hål_Collection")
             if old_mod:
                 wall_obj.modifiers.remove(old_mod)
@@ -159,6 +167,20 @@ class MESH_OT_bt_placera_komponent(bpy.types.Operator):
             bm_mod.solver = 'FLOAT'
             
             total_placerade += 1
+            last_placed = root_empty
         
-        self.report({'INFO'}, f"Placerade {total_placerade} komponent(er)")
+        # ----- MARKERA DEN SISTA PLACERADE KOMPONENTEN -----
+        if last_placed:
+            bpy.ops.object.select_all(action='DESELECT')
+            last_placed.select_set(True)
+            context.view_layer.objects.active = last_placed
+            
+            # Gå till 50. Place Component så användaren kan justera
+            # (Öppna panelen automatiskt)
+            scene.bt_show_komponenter = True
+            
+            self.report({'INFO'}, f"Placerade {total_placerade} komponent(er) - {comp_name} är markerad")
+        else:
+            self.report({'INFO'}, f"Placerade {total_placerade} komponent(er)")
+        
         return {'FINISHED'}

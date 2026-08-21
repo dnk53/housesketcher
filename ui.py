@@ -274,7 +274,7 @@ class VIEW3D_PT_huvudpanel(bpy.types.Panel):
             col6.prop(p, "hojd")
             col6.prop(p, "karmtjocklek")
             col6.prop(p, "karmdjup")
-            col6.prop(p, "indragning")
+            # col6.prop(p, "indragning")
             
             col6.separator()
             col6.operator("mesh.bt_skapa_fonster", text="Create Window Component")
@@ -293,13 +293,13 @@ class VIEW3D_PT_huvudpanel(bpy.types.Panel):
             col7.prop(p, "hangning")
             col7.prop(p, "bredd")
             col7.prop(p, "hojd")
-            col7.prop(p, "niva")
             col7.prop(p, "karmtjocklek")
             col7.prop(p, "karmdjup")
             col7.prop(p, "tröskelhöjd")
-            col7.prop(p, "indragning")
+            # col7.prop(p, "indragning")
             col7.separator()
             col7.operator("mesh.bt_skapa_dorr", text="Create Door Component")
+
 
         # ----- 50. PLACE COMPONENT -----
         box9 = layout.box()
@@ -316,5 +316,13 @@ class VIEW3D_PT_huvudpanel(bpy.types.Panel):
             # Placering
             col9.prop(scene, "bt_component_placering", text="Placement")
             
-            # Knapp
-            col9.operator("mesh.bt_placera_komponent", text="Place in Wall")
+            # Nivå (höjd över golv)
+            col9.prop(scene, "bt_component_niva", text="Level")
+            
+            # Indragning från utsida
+            col9.prop(scene, "bt_component_indragning", text="Inset")
+            
+            # Knappar
+            row = col9.row()
+            row.operator("mesh.bt_placera_komponent", text="Place in Wall")
+            row.operator("mesh.bt_ta_bort_komponent", text="Remove Selected")
