@@ -1,16 +1,16 @@
 # ________________________________________________________________________________________________
-# GENERERA DÖRR - Skapa dörr som komponenter
+# GENERERA DÖRR - Skapa dörr som komponenter (karm + blad + handtag i en mesh)
 # ________________________________________________________________________________________________
 
 import bpy
 import bmesh
-from mathutils import Matrix
+from mathutils import Matrix, Vector
 
 from .. import utils
 
 
 def create_door_component(context, name, W, H, kt, kd, tröskel, indragning, hangning):
-    """Skapar en dörr som en komponent i biblioteket"""
+    """Skapar en dörr som en komponent i biblioteket (alla delar i en mesh)"""
     
     w_halv = W / 2.0
     x_inner = w_halv - kt
@@ -39,7 +39,7 @@ def create_door_component(context, name, W, H, kt, kd, tröskel, indragning, han
     
     components_collection.children.link(comp_collection)
     
-    # ----- SKAPA KARM -----
+    # ----- KARM-KOORDINATER (16 vertices, index 0-15) -----
     karm_coords = [
         (-w_halv, indragning, 0), (w_halv, indragning, 0), 
         (w_halv, indragning, H), (-w_halv, indragning, H),
@@ -58,40 +58,7 @@ def create_door_component(context, name, W, H, kt, kd, tröskel, indragning, han
         (8, 12, 13, 9), (9, 13, 14, 10), (10, 14, 15, 11), (11, 15, 12, 8),
     ]
     
-    karm_mesh = bpy.data.meshes.new(f"{unique_name}_Karm_Mesh")
-    karm_obj = bpy.data.objects.new(f"{unique_name}_Karm", karm_mesh)
-    comp_collection.objects.link(karm_obj)
-    
-    bm = bmesh.new()
-    
-    for c in karm_coords:
-        bm.verts.new(c)
-    
-    bm.verts.ensure_lookup_table()
-    
-    # ----- SPARA VERTEX-INDICES INNAN faces skapas -----
-    karm_vert_indices = []
-    for v in bm.verts:
-        karm_vert_indices.append(v.index)
-    
-    for f in karm_faces:
-        try:
-            bm.faces.new([bm.verts[i] for i in f])
-        except:
-            pass
-    
-    mk = utils.get_material_dorrkarm()
-    karm_obj.data.materials.append(mk)
-    
-    bm.to_mesh(karm_mesh)
-    bm.free()
-    karm_mesh.update()
-    
-    # SPARA VERTEX-INDICES PÅ KARMEN
-    karm_obj["vertex_indices"] = karm_vert_indices
-    karm_obj["vertex_count"] = len(karm_coords)
-    
-    # ----- SKAPA DÖRRBLAD -----
+    # ----- DÖRRBLAD-KOORDINATER (8 vertices, index 16-23) -----
     blad_coords = [
         (-blad_w, indragning + 0.01, tröskel + 0.01),
         (blad_w, indragning + 0.01, tröskel + 0.01),
@@ -104,53 +71,84 @@ def create_door_component(context, name, W, H, kt, kd, tröskel, indragning, han
     ]
     
     blad_faces = [
-        (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6),
-        (3, 0, 4, 7), (4, 5, 6, 7), (0, 3, 2, 1),
+        (16, 17, 21, 20), (17, 18, 22, 21), (18, 19, 23, 22),
+        (19, 16, 20, 23), (20, 21, 22, 23), (16, 19, 18, 17),
     ]
     
-    blad_mesh = bpy.data.meshes.new(f"{unique_name}_Blad_Mesh")
-    blad_obj = bpy.data.objects.new(f"{unique_name}_Blad", blad_mesh)
-    comp_collection.objects.link(blad_obj)
+    # ----- HANDTAG (sticker ut 50 mm på var sida om dörrbladet) -----
+    handtag_x = blad_w - 0.04 if hangning == 'RIGHT' else -blad_w + 0.04
+    handtag_y = indragning + kd / 2
+    handtag_z = tröskel + blad_h / 2
     
-    bm_b = bmesh.new()
+    # Dörrbladet är kd = 0.04 m (40 mm) tjockt
+    # Handtaget ska vara 0.14 m (140 mm) långt = 50 mm + 40 mm + 50 mm
+    handtag_bredd = 0.025  # 25 mm tjockt
+    handtag_langd = 0.14   # 140 mm långt (50 mm på var sida)
     
-    for c in blad_coords:
-        bm_b.verts.new(c)
+    handtag_coords = [
+        (handtag_x - handtag_bredd, handtag_y - handtag_langd/2, handtag_z - handtag_bredd),
+        (handtag_x + handtag_bredd, handtag_y - handtag_langd/2, handtag_z - handtag_bredd),
+        (handtag_x + handtag_bredd, handtag_y + handtag_langd/2, handtag_z - handtag_bredd),
+        (handtag_x - handtag_bredd, handtag_y + handtag_langd/2, handtag_z - handtag_bredd),
+        (handtag_x - handtag_bredd, handtag_y - handtag_langd/2, handtag_z + handtag_bredd),
+        (handtag_x + handtag_bredd, handtag_y - handtag_langd/2, handtag_z + handtag_bredd),
+        (handtag_x + handtag_bredd, handtag_y + handtag_langd/2, handtag_z + handtag_bredd),
+        (handtag_x - handtag_bredd, handtag_y + handtag_langd/2, handtag_z + handtag_bredd),
+    ]
     
-    bm_b.verts.ensure_lookup_table()
+    handtag_faces = [
+        (24, 25, 29, 28), (25, 26, 30, 29), (26, 27, 31, 30),
+        (27, 24, 28, 31), (28, 29, 30, 31), (24, 27, 26, 25),
+    ]
     
-    # ----- SPARA VERTEX-INDICES INNAN faces skapas -----
-    blad_vert_indices = []
-    for v in bm_b.verts:
-        blad_vert_indices.append(v.index)
+    # ----- SLÅ IHOP ALLT -----
+    all_coords = karm_coords + blad_coords + handtag_coords
+    all_faces = karm_faces + blad_faces + handtag_faces
     
-    for f in blad_faces:
+    # ----- SKAPA MESH -----
+    mesh = bpy.data.meshes.new(f"{unique_name}_Mesh")
+    obj = bpy.data.objects.new(f"{unique_name}", mesh)
+    comp_collection.objects.link(obj)
+    
+    bm = bmesh.new()
+    vert_indices = []
+    
+    for c in all_coords:
+        v = bm.verts.new(c)
+        vert_indices.append(v.index)
+    
+    bm.verts.ensure_lookup_table()
+    
+    for f in all_faces:
         try:
-            bm_b.faces.new([bm_b.verts[i] for i in f])
+            bm.faces.new([bm.verts[i] for i in f])
         except:
             pass
     
+    # Material: index 0 = karm, index 1 = blad, index 2 = handtag
+    mk = utils.get_material_dorrkarm()
     md = utils.get_material_dorrblad()
-    blad_obj.data.materials.append(md)
+    mh = utils.get_material_handtag()
+    obj.data.materials.append(mk)
+    obj.data.materials.append(md)
+    obj.data.materials.append(mh)
     
-    bm_b.to_mesh(blad_mesh)
-    bm_b.free()
-    blad_mesh.update()
+    # Tilldela material baserat på face-index
+    for i, face in enumerate(bm.faces):
+        if i < len(karm_faces):
+            face.material_index = 0  # Karm
+        elif i < len(karm_faces) + len(blad_faces):
+            face.material_index = 1  # Blad
+        else:
+            face.material_index = 2  # Handtag
     
-    # SPARA VERTEX-INDICES PÅ BLADET
-    blad_obj["vertex_indices"] = blad_vert_indices
-    blad_obj["vertex_count"] = len(blad_coords)
+    bm.to_mesh(mesh)
+    bm.free()
+    mesh.update()
     
-    # ----- SKAPA DÖRRHANDTAG -----
-    handtag_x = -blad_w + 0.03 if hangning == 'RIGHT' else blad_w - 0.03
-    handtag_pos = (handtag_x, indragning + kd / 2, 0)
-    
-    handtag_obj = utils.skapa_dorrhandtag(
-        context,
-        hangning=hangning,
-        position=handtag_pos,
-        parent=blad_obj
-    )
+    # SPARA VERTEX-INDICES
+    obj["vertex_indices"] = vert_indices
+    obj["vertex_count"] = len(all_coords)
     
     # Gör collectionen osynlig i viewport
     comp_collection.hide_viewport = True

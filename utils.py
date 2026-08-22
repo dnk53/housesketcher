@@ -1868,39 +1868,183 @@ def bt_update_fonster(self, context):
 # 12. REALTIDSUPPDATERING - DÖRR
 # ---------------------------------------------------------------------------
 def bt_update_dorr(self, context):
-    """Uppdaterar markerade dörrar när dörrparametrar ändras"""
-    global _updating
-    if _updating:
+    """Uppdaterar markerade dörrar när användaren ändrar parametrar"""
+    global _updating_from_ui
+    
+    if _updating_from_ui:
         return
     
     scene = context.scene
-    selected_dorrar = [o for o in context.selected_objects if o.get("typ") == "dorr"]
+    selected = context.selected_objects
     
-    if not selected_dorrar:
+    # Hitta markerad komponent
+    selected_component = None
+    for obj in selected:
+        root = find_component_root(obj)
+        if root and root.get("komponent_typ") == "DOOR":
+            selected_component = root
+            break
+    
+    if not selected_component:
+        return
+    
+    # Hitta komponenten i biblioteket
+    comp_name = selected_component.get("komponent_namn")
+    comp_collection = utils.get_component_by_name(comp_name)
+    if not comp_collection:
         return
     
     p = scene.bt_dorr
     
-    values = {
-        "bredd": p.bredd,
-        "hojd": p.hojd,
-        "karmtjocklek": p.karmtjocklek,
-        "karmdjup": p.karmdjup,
-        "indragning": p.indragning,
-        "tröskelhöjd": p.tröskelhöjd
-    }
+    # ----- SPARA PARAMETRAR -----
+    selected_component["bredd"] = p.bredd
+    selected_component["hojd"] = p.hojd
+    selected_component["karmtjocklek"] = p.karmtjocklek
+    selected_component["karmdjup"] = p.karmdjup
+    selected_component["tröskelhöjd"] = p.tröskelhöjd
+    selected_component["hangning"] = p.hangning
     
-    for dorr in selected_dorrar:
-        dorr["dorr_bredd"] = p.bredd
-        dorr["dorr_hojd"] = p.hojd
-        dorr["karmtjocklek"] = p.karmtjocklek
-        dorr["karmdjup"] = p.karmdjup
-        dorr["indragning"] = p.indragning
-        dorr["tröskelhöjd"] = p.tröskelhöjd
-        dorr["hangning"] = p.hangning
+    comp_collection["width"] = p.bredd
+    comp_collection["height"] = p.hojd
+    comp_collection["karmtjocklek"] = p.karmtjocklek
+    comp_collection["karmdjup"] = p.karmdjup
+    comp_collection["tröskelhöjd"] = p.tröskelhöjd
+    comp_collection["hangning"] = p.hangning
+    
+    # ----- BERÄKNA NYA KOORDINATER -----
+    W = p.bredd
+    H = p.hojd
+    kt = p.karmtjocklek
+    kd = p.karmdjup
+    tröskel = p.tröskelhöjd
+    indragning = selected_component.get("indragning", 0.01)
+    
+    w_halv = W / 2.0
+    x_inner = w_halv - kt
+    z_inner = H - kt
+    mellanrum = 0.003
+    blad_w = x_inner - mellanrum
+    blad_h = z_inner - tröskel - mellanrum
+    
+    # Karm-koordinater (16 vertices)
+    karm_coords = [
+        (-w_halv, indragning, 0), (w_halv, indragning, 0), 
+        (w_halv, indragning, H), (-w_halv, indragning, H),
+        (-w_halv, indragning + kd, 0), (w_halv, indragning + kd, 0), 
+        (w_halv, indragning + kd, H), (-w_halv, indragning + kd, H),
+        (-x_inner, indragning, tröskel), (x_inner, indragning, tröskel), 
+        (x_inner, indragning, z_inner), (-x_inner, indragning, z_inner),
+        (-x_inner, indragning + kd, tröskel), (x_inner, indragning + kd, tröskel), 
+        (x_inner, indragning + kd, z_inner), (-x_inner, indragning + kd, z_inner),
+    ]
+    
+    # Dörrblad-koordinater (8 vertices)
+    blad_coords = [
+        (-blad_w, indragning + 0.01, tröskel + 0.01),
+        (blad_w, indragning + 0.01, tröskel + 0.01),
+        (blad_w, indragning + 0.01, tröskel + blad_h - 0.01),
+        (-blad_w, indragning + 0.01, tröskel + blad_h - 0.01),
+        (-blad_w, indragning + kd - 0.01, tröskel + 0.01),
+        (blad_w, indragning + kd - 0.01, tröskel + 0.01),
+        (blad_w, indragning + kd - 0.01, tröskel + blad_h - 0.01),
+        (-blad_w, indragning + kd - 0.01, tröskel + blad_h - 0.01),
+    ]
+    
+    # Handtag (8 vertices)
+    handtag_x = blad_w - 0.04 if p.hangning == 'RIGHT' else -blad_w + 0.04
+    handtag_y = indragning + kd / 2
+    handtag_z = tröskel + blad_h / 2
+    handtag_bredd = 0.015
+    handtag_langd = 0.08
+    
+    handtag_coords = [
+        (handtag_x - handtag_bredd, handtag_y - handtag_langd/2, handtag_z - handtag_bredd),
+        (handtag_x + handtag_bredd, handtag_y - handtag_langd/2, handtag_z - handtag_bredd),
+        (handtag_x + handtag_bredd, handtag_y + handtag_langd/2, handtag_z - handtag_bredd),
+        (handtag_x - handtag_bredd, handtag_y + handtag_langd/2, handtag_z - handtag_bredd),
+        (handtag_x - handtag_bredd, handtag_y - handtag_langd/2, handtag_z + handtag_bredd),
+        (handtag_x + handtag_bredd, handtag_y - handtag_langd/2, handtag_z + handtag_bredd),
+        (handtag_x + handtag_bredd, handtag_y + handtag_langd/2, handtag_z + handtag_bredd),
+        (handtag_x - handtag_bredd, handtag_y + handtag_langd/2, handtag_z + handtag_bredd),
+    ]
+    
+    # ----- SLÅ IHOP ALLA KOORDINATER -----
+    all_coords = karm_coords + blad_coords + handtag_coords
+    print(f"  Antal koordinater: {len(all_coords)}")  # <-- DEBUG
+    
+    # ----- UPPDATERA VERTICES -----
+    for obj in comp_collection.objects:
+        if not obj.data:
+            continue
         
-        bt_update_single_dorr(dorr, values)
-
+        print(f"  Uppdaterar: {obj.name}")  # <-- DEBUG
+        
+        mesh = obj.data
+        vert_indices = obj.get("vertex_indices")
+        print(f"    vertex_indices: {vert_indices[:5] if vert_indices else 'None'}...")  # <-- DEBUG
+        
+        if mesh.is_editmode:
+            try:
+                bpy.ops.object.mode_set(mode='OBJECT')
+            except:
+                continue
+        
+        bm = bmesh.new()
+        bm.from_mesh(mesh)
+        bm.verts.ensure_lookup_table()
+        
+        print(f"    Antal vertices i mesh: {len(bm.verts)}")  # <-- DEBUG
+        
+        # Uppdatera vertices
+        for i, c in enumerate(all_coords):
+            if i < len(bm.verts):
+                bm.verts[i].co = c
+        
+        bm.verts.ensure_lookup_table()
+        bm.to_mesh(mesh)
+        bm.free()
+        mesh.update()
+    
+    # ----- UPPDATERA CUTTER -----
+    cutter_depth = 0.800
+    cutter_start = -0.300
+    cutter_coords = [
+        (-w_halv, cutter_start, -0.0001), (w_halv, cutter_start, -0.0001), 
+        (w_halv, cutter_start, H), (-w_halv, cutter_start, H),
+        (-w_halv, cutter_start + cutter_depth, -0.0001), (w_halv, cutter_start + cutter_depth, -0.0001), 
+        (w_halv, cutter_start + cutter_depth, H), (-w_halv, cutter_start + cutter_depth, H)
+    ]
+    
+    for obj in bpy.data.objects:
+        if obj.get("komponent_namn") == comp_name:
+            for child in obj.children:
+                if child.name.startswith("Hål_"):
+                    mesh = child.data
+                    if mesh.is_editmode:
+                        try:
+                            bpy.ops.object.mode_set(mode='OBJECT')
+                        except:
+                            continue
+                    
+                    bm = bmesh.new()
+                    bm.from_mesh(mesh)
+                    bm.verts.ensure_lookup_table()
+                    
+                    for i, c in enumerate(cutter_coords):
+                        if i < len(bm.verts):
+                            bm.verts[i].co = c
+                    
+                    bm.verts.ensure_lookup_table()
+                    bm.to_mesh(mesh)
+                    bm.free()
+                    mesh.update()
+    
+    bpy.context.view_layer.update()
+    for area in context.screen.areas:
+        if area.type == 'VIEW_3D':
+            area.tag_redraw()
+    
+    print("=== bt_update_dorr KLAR ===\n")
 
 def bt_update_single_dorr(dorr_obj, values):
     """Uppdaterar en enskild dörrs geometri och position"""
