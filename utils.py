@@ -10,6 +10,7 @@ from math import radians, sin, tan, cos, atan
 from bpy.props import FloatProperty, BoolProperty
 from mathutils import Vector, Matrix
 from bpy.app.handlers import persistent
+from . import ui  # <-- LÄGG TILL
 
 DELTA = 0.00001
 
@@ -696,10 +697,27 @@ def bt_update_tak(self, context):
         if not house_data:
             return
         
-        # Hitta takdelar som hör till denna Empty
+        # ----- HITTA ALLA TAKDELAR SOM HÖR TILL DETTA HUS -----
+        # Först: hitta takdelar som är barn till active_empty
         takdelar_obj = {}
         for obj in scene.objects:
-            if obj.name.startswith("Tak_") and obj.parent == active_empty:
+            if obj.name.startswith("Tak_"):
+                if obj.parent == active_empty:
+                    takdelar_obj[obj.name] = obj
+                else:
+                    # Om takdelen har fel parent, sätt rätt parent
+                    obj.parent = active_empty
+                    obj.location = (0, 0, 0)
+                    obj.matrix_parent_inverse = active_empty.matrix_world.inverted()
+                    takdelar_obj[obj.name] = obj
+        
+        # Om vi fortfarande inte har alla takdelar, försök hitta dem i scenen
+        # och sätt rätt parent
+        for obj in scene.objects:
+            if obj.name.startswith("Tak_") and obj.name not in takdelar_obj:
+                obj.parent = active_empty
+                obj.location = (0, 0, 0)
+                obj.matrix_parent_inverse = active_empty.matrix_world.inverted()
                 takdelar_obj[obj.name] = obj
         
         if not takdelar_obj:
@@ -717,7 +735,7 @@ def bt_update_tak(self, context):
             if hasattr(h, key):
                 setattr(h, key, value)
         
-        # Beräkna takgeometri (Globala koordinater, baserat på origo)
+        # Beräkna takgeometri
         geo = calculate_tak_geometry(scene)
         
         # Återställ originalvärden
@@ -725,9 +743,10 @@ def bt_update_tak(self, context):
             if hasattr(h, key):
                 setattr(h, key, value)
         
-        # Uppdatera varje takdel med LOKALA koordinater
+        # Uppdatera varje takdel
         for namn, info in TAKDELAR_INFO.items():
             if namn not in takdelar_obj:
+                print(f"  VARNING: {namn} saknas!")
                 continue
             
             obj = takdelar_obj[namn]
@@ -742,18 +761,11 @@ def bt_update_tak(self, context):
             v_indices = info["v_indices"]
             h_indices = info["h_indices"]
             
-            # Hämta globala vertices från beräkningen
             del_verts = []
             for idx in v_indices:
                 del_verts.append(geo['v_verts'][idx])
             for idx in h_indices:
                 del_verts.append(geo['h_verts'][idx])
-            
-            # Eftersom taket är barn till Empty, och Empty är vid origo,
-            # är Global = Local. Så vi kan använda del_verts direkt.
-            # MEN: om Empty inte är vid origo, måste vi subtrahera offset.
-            # Eftersom vi vill att taket ska vara lokalt, använder vi
-            # koordinaterna direkt (de är redan baserade på origo).
             
             bm = bmesh.new()
             bm.from_mesh(mesh)
@@ -771,8 +783,13 @@ def bt_update_tak(self, context):
             bm.free()
             mesh.update()
             
-            # Se till att objektet inte har någon lokal förskjutning
-            obj.location = (0, 0, 0)
+            # Se till att objektet har rätt parent och position
+            if obj.parent != active_empty:
+                obj.parent = active_empty
+                obj.location = (0, 0, 0)
+                obj.matrix_parent_inverse = active_empty.matrix_world.inverted()
+            else:
+                obj.location = (0, 0, 0)
         
         # Uppdatera guiderna för detta hus
         bt_update_wall_guide(self, context)
@@ -2098,8 +2115,65 @@ def bt_selection_handler(scene, depsgraph=None):
         sync_bjalklag_panel_from_selection(context)
         sync_vagg_panel_from_selection(context)
         sync_innervagg_panel_from_selection(context)
+        
+        # ----- SYNKRONISERA 50. PLACE COMPONENT -----
+        sync_placement_panel_from_selection(context)  # <-- ANVÄND DENNA
     
     bt_update_spegelvänd_from_selection(scene)
+    
+
+def sync_placement_panel_from_selection(context):
+    """Synkroniserar 50. Place Component panelen med markerad komponent"""
+    scene = context.scene
+    selected = context.selected_objects
+    
+    # Hitta markerad komponent (root_empty via valfri del)
+    selected_component = None
+    for obj in selected:
+        current = obj
+        while current:
+            if current.get("komponent_namn"):
+                selected_component = current
+                break
+            current = current.parent
+        if selected_component:
+            break
+    
+    if not selected_component:
+        return
+    
+    # Hämta placeringsvärden från komponenten
+    placering = selected_component.get("placering", 0.0)
+    niva = selected_component.get("niva", 0.0)
+    indragning = selected_component.get("indragning", 0.01)
+    comp_name = selected_component.get("komponent_namn")
+    
+    # Förhindra cirkulära uppdateringar
+    if not hasattr(sync_placement_panel_from_selection, "_updating"):
+        sync_placement_panel_from_selection._updating = False
+    
+    if sync_placement_panel_from_selection._updating:
+        return
+    
+    sync_placement_panel_from_selection._updating = True
+    
+    try:
+        # Uppdatera placering
+        scene.bt_component_placering = placering
+        scene.bt_component_niva = niva
+        scene.bt_component_indragning = indragning
+        
+        # Uppdatera dropdown
+        if comp_name:
+            scene.bt_selected_component = comp_name
+        
+        # ----- ÖPPNA 50. PLACE COMPONENT AUTOMATISKT -----
+        # Öppna bara om det inte redan är öppet
+        if not scene.bt_show_komponenter:
+            scene.bt_show_komponenter = True
+            
+    finally:
+        sync_placement_panel_from_selection._updating = False
 
 # ---------------------------------------------------------------------------
 # 15. HJÄLPFUNKTION - SKAPA VÄGG (global position, utan Empty)
@@ -2899,7 +2973,6 @@ def get_material_tak():
         mat = bpy.data.materials.new(name="Tak_Mörkgrå")
         mat.use_fake_user = True
         mat.diffuse_color = rgb(0.15, 0.15, 0.15, 1.0)
-        print("hej")
         mat.use_nodes = True
         nodes = mat.node_tree.nodes
         links = mat.node_tree.links

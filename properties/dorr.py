@@ -281,7 +281,6 @@ def sync_dorr_panel_from_selection(context):
             p.karmdjup = comp_collection.get("karmdjup", 0.10)
             p.tröskelhöjd = comp_collection.get("tröskelhöjd", 0.05)
             p.hangning = comp_collection.get("hangning", "RIGHT")
-            p.placering = selected_component.get("placering", 0.0)
     finally:
         _updating_from_ui = False
 

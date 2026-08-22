@@ -221,6 +221,7 @@ def sync_fonster_panel_from_selection(context):
     scene = context.scene
     selected = context.selected_objects
     
+    # Hitta markerad komponent
     selected_component = None
     for obj in selected:
         root = find_component_root(obj)

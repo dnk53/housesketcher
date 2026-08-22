@@ -19,11 +19,13 @@ class MESH_OT_bt_dolj_alla_menyer(bpy.types.Operator):
         scene.bt_show_osymmetrisk = False
         scene.bt_show_platta = False
         scene.bt_show_vagg = False
-        scene.bt_show_innervagg = False
         scene.bt_show_bjalklag = False
         scene.bt_show_fonster = False
         scene.bt_show_dorr = False
+        scene.bt_show_innervagg = False
+        scene.bt_show_komponenter = False  # <-- LÄGG TILL
         return {'FINISHED'}
+
 
 class MESH_OT_bt_uppdatera_mallar(bpy.types.Operator):
     bl_idname = "mesh.bt_uppdatera_mallar"
@@ -34,4 +36,4 @@ class MESH_OT_bt_uppdatera_mallar(bpy.types.Operator):
     def execute(self, context):
         utils.bt_update_all_guides(self, context)
         self.report({'INFO'}, "Mallarna har uppdaterats!")
-        return {'FINISHED'}        
+        return {'FINISHED'}

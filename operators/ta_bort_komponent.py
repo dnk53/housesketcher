@@ -9,7 +9,6 @@ def find_component_root(obj):
     """Hittar root_empty för en komponent genom att följa parent-kedjan uppåt"""
     current = obj
     while current:
-        # Kolla om detta objekt är en root_empty (har komponent_namn)
         if current.get("komponent_namn"):
             return current
         current = current.parent
@@ -41,44 +40,33 @@ class MESH_OT_bt_ta_bort_komponent(bpy.types.Operator):
             # Hitta väggen som komponenten sitter i
             wall_obj = root_obj.parent
             
-            # ----- SAMLA ALLA OBJEKT SOM SKA TAS BORT (med namn) -----
+            # ----- SAMLA ALLA OBJEKT SOM SKA TAS BORT -----
             objects_to_remove = []
             
-            # Samla alla barn (rekursivt)
             def collect_children(obj):
                 for child in obj.children:
-                    objects_to_remove.append(child.name)
+                    objects_to_remove.append(child)
                     collect_children(child)
             
             collect_children(root_obj)
+            objects_to_remove.append(root_obj)
             
-            # Lägg till root_obj själv
-            objects_to_remove.append(root_obj.name)
-            
-            # ----- TA BORT ALLA OBJEKT -----
-            for obj_name in objects_to_remove:
+            # ----- TA BORT OBJEKTEN (MEN INTE MESH-DATA) -----
+            for obj in objects_to_remove:
                 try:
-                    # Kolla om objektet fortfarande finns
-                    if obj_name not in bpy.data.objects:
+                    if obj.name not in bpy.data.objects:
                         continue
                     
-                    obj = bpy.data.objects[obj_name]
-                    
-                    # Ta bort mesh-data om det finns
-                    if obj.data and obj.data.name in bpy.data.meshes:
-                        bpy.data.meshes.remove(obj.data, do_unlink=True)
-                    
-                    # Ta bort objektet
-                    if obj_name in bpy.data.objects:
-                        bpy.data.objects.remove(bpy.data.objects[obj_name], do_unlink=True)
+                    # Ta bort objektet men BEHÅLL mesh-datan
+                    # (mesh-datan delas med andra instanser)
+                    bpy.data.objects.remove(obj, do_unlink=True)
                         
                 except Exception as e:
-                    print(f"Kunde inte ta bort {obj_name}: {e}")
+                    print(f"Kunde inte ta bort {obj.name}: {e}")
             
             # ----- UPPDATERA BOOLEAN PÅ VÄGGEN -----
             if wall_obj and wall_obj.name in bpy.data.objects:
                 try:
-                    # Kolla om det finns några fler hål
                     hal_collection = bpy.data.collections.get("Hål")
                     if hal_collection:
                         # Rensa bort eventuella tomma objekt i collectionen
@@ -96,5 +84,5 @@ class MESH_OT_bt_ta_bort_komponent(bpy.types.Operator):
             
             removed_count += 1
         
-        self.report({'INFO'}, f"Tog bort {removed_count} komponent(er)")
+        self.report({'INFO'}, f"Tog bort {removed_count} placerad(e) komponent(er)")
         return {'FINISHED'}
